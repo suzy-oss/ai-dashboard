@@ -10,7 +10,7 @@ from openai import OpenAI
 UPLOAD_DIR = "resources"
 ADMIN_PASSWORD = "1234"
 
-# 페이지 기본 설정 (제목 변경 및 디자인 테마 적용)
+# 페이지 설정
 st.set_page_config(
     page_title="Red Drive - AI 리소스 센터",
     layout="wide",
@@ -18,71 +18,61 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS로 디자인 다듬기 (레드 포인트 강조)
+# --- 디자인(CSS) 수정: 글씨 색상 강제 지정 ---
 st.markdown("""
 <style>
-    /* 전체 테마 및 폰트 */
+    /* 폰트 설정 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     html, body, [class*="css"] {
-        font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+        font-family: Pretendard, sans-serif;
     }
     
-    /* 메인 타이틀 강조 */
+    /* 메인 타이틀 레드 컬러 */
     .main-title {
-        color: #E63946; /* 레드 컬러 */
+        color: #E63946; 
         font-weight: 800;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
     }
     
-    /* 버튼 스타일링 (레드 포인트) */
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        font-weight: 600;
-        border: none;
-        transition: all 0.3s ease;
+    /* 1. 사이드바 강제 스타일링 (흰 배경 + 검은 글씨) */
+    section[data-testid="stSidebar"] {
+        background-color: #f8f9fa;
     }
-    /* 주요 버튼 (다운로드, 업로드) */
-    div[data-testid="stForm"] button, div[data-testid="column"] button {
-        background-color: #E63946;
-        color: white;
+    section[data-testid="stSidebar"] * {
+        color: #333333 !important; /* 사이드바의 모든 글씨를 검게 */
     }
-    div[data-testid="stForm"] button:hover, div[data-testid="column"] button:hover {
-        background-color: #C1121F; /* 더 진한 레드 */
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2 {
+        color: #E63946 !important; /* 제목은 레드로 유지 */
     }
 
-    /* 리소스 카드 스타일링 */
+    /* 2. 리소스 카드 강제 스타일링 (흰 배경 + 검은 글씨) */
     .resource-card-container {
+        background-color: #ffffff;
+        color: #333333; /* 기본 글씨 검게 */
         border: 1px solid #eee;
         border-radius: 12px;
         padding: 20px;
+        margin-bottom: 20px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        background-color: #fff;
-        transition: transform 0.2s;
     }
-    .resource-card-container:hover {
-         transform: translateY(-3px);
-         box-shadow: 0 6px 16px rgba(230, 57, 70, 0.15); /* 레드 그림자 */
-         border-color: #ffcdd2;
+    /* 카드 안의 제목, 설명, 리스트 등 모든 요소 검은색 강제 */
+    .resource-card-container h1, .resource-card-container h2, .resource-card-container h3,
+    .resource-card-container p, .resource-card-container span, .resource-card-container li {
+        color: #333333 !important;
     }
     
-    /* 사이드바 스타일 */
-    section[data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-        border-right: 1px solid #eee;
+    /* 버튼 스타일 (레드) */
+    div[data-testid="stForm"] button, div[data-testid="column"] button {
+        background-color: #E63946;
+        color: white !important; /* 버튼 글씨는 흰색 유지 */
+        border: none;
     }
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2 {
-        color: #E63946;
-    }
-    
-    /* 경고/정보 박스 커스텀 */
-    .stAlert {
-        border-radius: 8px;
+    div[data-testid="stForm"] button:hover, div[data-testid="column"] button:hover {
+        background-color: #C1121F;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 함수 정의 (이전과 동일) ---
+# --- 함수 정의 (기존과 동일) ---
 def load_resources():
     resources = []
     if not os.path.exists(UPLOAD_DIR):
@@ -115,148 +105,123 @@ def create_zip(selected_ids):
 
 def generate_description(file_names, user_input_hint):
     if not st.session_state.get('openai_api_key'):
-        return "💡 API 키가 입력되지 않아 자동 설명이 생성되지 않았습니다. (관리자 페이지에서 키를 입력해주세요)"
+        return "💡 API 키가 입력되지 않아 자동 설명이 생성되지 않았습니다."
     
     client = OpenAI(api_key=st.session_state['openai_api_key'])
     prompt = f"""
-    'Red Drive'라는 AI 리소스 공유 플랫폼에 올라온 자료야.
-    포함된 파일들을 보고 팀원들이 이해하기 쉽게 2~3문장의 한국어 설명을 작성해줘.
-    
-    - 파일 목록: {', '.join(file_names)}
-    - 작성자 힌트: {user_input_hint}
-    
-    전문적이고 명확한 어조로, '~~하는 워크플로우입니다.', '~~ 데이터셋입니다.' 등으로 끝맺어줘.
+    'Red Drive' 플랫폼 자료 설명.
+    파일 목록: {', '.join(file_names)}
+    힌트: {user_input_hint}
+    이해하기 쉽고 전문적인 한국어로 2~3문장 설명 작성.
     """
     try:
         response = client.chat.completions.create(
-            model="gpt-4o", messages=[{"role": "user", "content": prompt}], temperature=0.7
+            model="gpt-4o", messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"⚠️ AI 설명 생성 중 오류 발생: {str(e)}"
+        return f"설명 생성 실패: {str(e)}"
 
-# --- 메인 앱 로직 ---
+# --- 메인 페이지 ---
 def main_page():
-    # 타이틀 변경 및 디자인 적용
-    st.markdown('<h1 class="main-title">🔴 Red Drive <span style="font-size:0.6em; color:#666;">| AI 리소스 센터</span></h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-title">🔴 Red Drive <span style="font-size:0.6em; color:#bbb;">| AI 리소스 센터</span></h1>', unsafe_allow_html=True)
     st.markdown("우리 레드사업실의 업무 효율을 높여줄 AI 도구와 데이터를 이곳에서 공유하고 활용하세요!")
     st.divider()
 
     with st.sidebar:
         st.header("🔍 검색 및 필터")
-        search_query = st.text_input("검색어 입력", placeholder="예: 이메일, 프롬프트...")
-        st.caption("💡 팁: 여러 자료를 선택 후 하단의 '일괄 다운로드'를 클릭하세요.")
+        search_query = st.text_input("검색어 입력", placeholder="예: 이메일...")
+        st.caption("💡 팁: 체크박스 선택 후 하단 '일괄 다운로드' 클릭")
 
     resources = load_resources()
     if search_query:
         resources = [r for r in resources if search_query.lower() in r.get('title','').lower() or search_query.lower() in r.get('description','').lower()]
 
     if not resources:
-        st.info("👋 아직 등록된 리소스가 없습니다. 관리자 페이지에서 첫 번째 자료를 업로드해주세요!")
+        st.info("👋 등록된 리소스가 없습니다. 관리자 페이지에서 자료를 업로드해주세요.")
         return
 
     if 'selected_resources' not in st.session_state:
         st.session_state['selected_resources'] = []
 
-    col_all_1, col_all_2 = st.columns([1.2, 8])
-    if col_all_1.button("전체 선택/해제"):
+    # 전체 선택 버튼
+    if st.button("전체 선택/해제"):
         if len(st.session_state['selected_resources']) == len(resources):
             st.session_state['selected_resources'] = []
         else:
             st.session_state['selected_resources'] = [r['id'] for r in resources]
             
+    # 리소스 카드 출력
     cols = st.columns(2)
     for idx, res in enumerate(resources):
         with cols[idx % 2]:
-            # 카드 디자인 컨테이너 적용
             with st.container():
-                st.markdown('<div class="resource-card-container">', unsafe_allow_html=True)
-                c1, c2 = st.columns([8, 1])
-                # 카테고리 배지 스타일
-                badge_color = {"Workflow": "blue", "Prompt": "green", "Data": "orange"}.get(res.get('category'), "grey")
-                c1.markdown(f":{badge_color}[**{res.get('category', 'General')}**] | 📄 파일 {len(res.get('files', []))}개")
+                # HTML div로 감싸서 CSS 강제 적용
+                st.markdown(f"""
+                <div class="resource-card-container">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:blue; font-weight:bold;">[{res.get('category', 'General')}]</span>
+                        <span style="color:#666;">📄 파일 {len(res.get('files', []))}개</span>
+                    </div>
+                    <h3 style="margin-top:10px; color:#333 !important;">{res.get('title', '제목 없음')}</h3>
+                    <p style="color:#333 !important;">{res.get('description', '설명 없음')}</p>
+                </div>
+                """, unsafe_allow_html=True)
                 
+                # 기능 버튼들 (Streamlit 네이티브 기능 사용을 위해 분리)
+                c1, c2 = st.columns([0.1, 0.9])
                 is_selected = res['id'] in st.session_state['selected_resources']
-                if c2.checkbox("선택", key=f"chk_{res['id']}", value=is_selected, label_visibility="collapsed"):
+                if st.checkbox(f"{res['title']} 선택", key=f"chk_{res['id']}", value=is_selected):
                     if res['id'] not in st.session_state['selected_resources']:
                         st.session_state['selected_resources'].append(res['id'])
                 else:
                     if res['id'] in st.session_state['selected_resources']:
                         st.session_state['selected_resources'].remove(res['id'])
-
-                st.subheader(res.get('title', '제목 없음'))
-                st.write(res.get('description', '설명 없음'))
-                with st.expander("포함된 파일 보기"):
+                
+                with st.expander("👉 포함된 파일 목록 보기"):
                     for f in res.get('files', []):
-                        st.markdown(f"- 📄 `{f}`")
-                st.markdown('</div>', unsafe_allow_html=True)
-    
+                        st.text(f"- {f}")
+
     st.divider()
     if st.session_state['selected_resources']:
-        st.success(f"✅ {len(st.session_state['selected_resources'])}개 리소스가 선택되었습니다.")
+        st.success(f"✅ {len(st.session_state['selected_resources'])}개 리소스 선택됨")
         zip_data = create_zip(st.session_state['selected_resources'])
-        st.download_button(
-            label="📦 선택한 리소스 일괄 다운로드 (ZIP)",
-            data=zip_data,
-            file_name="RedDrive_Resources.zip",
-            mime="application/zip",
-            use_container_width=True
-        )
+        st.download_button("📦 선택한 리소스 일괄 다운로드 (ZIP)", zip_data, "RedDrive.zip", "application/zip", use_container_width=True)
 
 # --- 관리자 페이지 ---
 def admin_page():
-    st.title("🛠️ 리소스 업로드 (관리자)")
-    pwd = st.text_input("관리자 비밀번호", type="password")
+    st.title("🛠️ 리소스 업로드")
+    pwd = st.text_input("비밀번호", type="password")
     if pwd != ADMIN_PASSWORD:
         st.warning("🔒 비밀번호를 입력하세요.")
         return
 
-    st.success("🔓 인증되었습니다.")
-    api_key = st.text_input("OpenAI API Key (자동 설명 생성용)", type="password", help="키가 없으면 AI 설명 기능이 작동하지 않습니다.")
-    if api_key:
-        st.session_state['openai_api_key'] = api_key
+    st.success("인증됨")
+    api_key = st.text_input("OpenAI API Key", type="password")
+    if api_key: st.session_state['openai_api_key'] = api_key
 
-    with st.form("upload_form", clear_on_submit=True):
-        st.subheader("새 리소스 등록")
-        col1, col2 = st.columns([2, 1])
-        title = col1.text_input("리소스 제목", placeholder="예: 주간 업무 자동화 봇")
-        category = col2.selectbox("카테고리", ["Workflow", "Prompt", "Data", "기타"])
-        
-        uploaded_files = st.file_uploader("관련 파일 모두 업로드 (드래그 앤 드롭)", accept_multiple_files=True)
-        user_hint = st.text_area("AI에게 줄 힌트 (선택사항)", placeholder="예: 이 워크플로우는 노션이랑 슬랙을 연결해줍니다.")
-        
-        generate_btn = st.form_submit_button("🚀 업로드 및 등록 시작")
-        
-        if generate_btn and title and uploaded_files:
-            folder_name = "".join([c if c.isalnum() else "_" for c in title]) + "_" + os.urandom(4).hex()
-            target_dir = os.path.join(UPLOAD_DIR, folder_name)
-            if not os.path.exists(target_dir):
-                os.makedirs(target_dir)
-            
-            file_names = []
-            for up_file in uploaded_files:
-                file_path = os.path.join(target_dir, up_file.name)
-                with open(file_path, "wb") as f:
-                    f.write(up_file.getbuffer())
-                file_names.append(up_file.name)
-            
-            with st.spinner("🤖 AI가 열심히 설명을 작성하고 있습니다..."):
-                description = generate_description(file_names, user_hint)
-
-            meta_data = {"title": title, "category": category, "description": description, "files": file_names}
-            with open(os.path.join(target_dir, "info.json"), "w", encoding="utf-8") as f:
-                json.dump(meta_data, f, ensure_ascii=False, indent=4)
+    with st.form("upload", clear_on_submit=True):
+        title = st.text_input("제목")
+        category = st.selectbox("카테고리", ["Workflow", "Prompt", "Data", "Etc"])
+        files = st.file_uploader("파일", accept_multiple_files=True)
+        hint = st.text_area("힌트")
+        if st.form_submit_button("업로드"):
+            if title and files:
+                folder = "".join([c if c.isalnum() else "_" for c in title]) + "_" + os.urandom(4).hex()
+                path = os.path.join(UPLOAD_DIR, folder)
+                os.makedirs(path, exist_ok=True)
+                f_names = []
+                for f in files:
+                    with open(os.path.join(path, f.name), "wb") as wb: wb.write(f.getbuffer())
+                    f_names.append(f.name)
                 
-            st.balloons()
-            st.success(f"✅ '{title}' 등록 완료! (파일명: {', '.join(file_names)})")
-        elif generate_btn:
-            st.error("제목과 파일을 모두 입력해주세요.")
+                desc = generate_description(f_names, hint)
+                with open(os.path.join(path, "info.json"), "w", encoding="utf-8") as jf:
+                    json.dump({"title":title, "category":category, "description":desc, "files":f_names}, jf, ensure_ascii=False)
+                st.success("등록 완료!")
 
-# --- 앱 실행 라우터 ---
+# --- 실행 ---
 st.sidebar.title("🔴 Red Drive")
-page = st.sidebar.radio("메뉴 선택", ["리소스 탐색", "관리자 업로드"], label_visibility="collapsed")
-
-if page == "리소스 탐색":
-    main_page()
-else:
-    admin_page()
+page = st.sidebar.radio("메뉴", ["리소스 탐색", "관리자 업로드"])
+if page == "리소스 탐색": main_page()
+else: admin_page()
