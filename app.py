@@ -6,52 +6,47 @@ import zipfile
 from openai import OpenAI
 
 # --- 버전 확인용 (업데이트 확인을 위해 필수) ---
-CURRENT_VERSION = "🔥 버전 4.0 긴급 복구"
+CURRENT_VERSION = "✅ v4.1 (폰트 버그 수정 완료)"
 
 # --- 1. 설정 ---
-# [로컬 테스트용 설정] - 배포 시에는 st.secrets를 사용하는 것이 좋습니다.
+# [로컬 테스트용] - 배포 시에는 st.secrets 사용 권장
 OPENAI_API_KEY = "여기에_키를_입력하세요" 
 ADMIN_PASSWORD = "1234"
 UPLOAD_DIR = "resources"
 
 st.set_page_config(page_title="Red Drive", layout="wide", page_icon="🔴", initial_sidebar_state="expanded")
 
-# --- 2. 강력한 CSS 수정 (겹침 삭제 + 메뉴 복구) ---
+# --- 2. CSS 디자인 수정 (폰트 버그 해결) ---
 st.markdown("""
 <style>
-    /* 폰트 적용 */
+    /* 1. 폰트 적용 (아이콘이 깨지지 않도록 !important 제거 및 범위 한정) */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-    * { font-family: Pretendard, sans-serif !important; }
+    
+    html, body, [class*="css"] {
+        font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    }
     
     /* 🔴 전체 테마: 다크 모드 */
     .stApp { background-color: #0E1117; color: #FAFAFA; }
 
-    /* 🚨 [UI 긴급 수리] 겹치는 텍스트 및 상단 배포 버튼 강제 삭제 */
-    header { visibility: hidden; } /* 상단 헤더 숨김 */
-    .stDeployButton { display: none !important; } /* 배포 버튼 삭제 */
-    div[data-testid="stStatusWidget"] { display: none !important; } /* 상태 위젯 삭제 */
-    div[data-testid="stToolbar"] { display: none !important; } /* 툴바 삭제 */
-    div[data-testid="stDecoration"] { display: none !important; } /* 상단 데코레이션 삭제 */
+    /* 2. UI 정리 (배포 버튼 등 불필요한 요소 숨김) */
+    .stDeployButton { display: none !important; }
+    div[data-testid="stStatusWidget"] { display: none !important; }
+    header { visibility: hidden; }
     
-    /* 툴팁 겹침 문제 해결 */
-    div[data-testid="stTooltipHoverTarget"] { display: none !important; }
-    
-    /* 📂 사이드바 스타일 (메뉴가 보이도록 수정) */
+    /* 3. 사이드바 스타일 */
     section[data-testid="stSidebar"] {
         background-color: #161B22;
         border-right: 1px solid #30363D;
-        width: 300px !important; /* 너비 고정 */
     }
-    
-    /* 사이드바 안의 텍스트 색상 강제 지정 */
     section[data-testid="stSidebar"] * {
         color: #E6E6E6 !important;
     }
 
-    /* 라디오 버튼(메뉴) 스타일링 - 버튼처럼 보이게 */
+    /* 4. 메뉴(라디오 버튼) 커스텀 */
     div.row-widget.stRadio > div[role="radiogroup"] > label {
         background-color: #21262D;
-        padding: 15px;
+        padding: 12px;
         margin-bottom: 8px;
         border-radius: 8px;
         border: 1px solid #30363D;
@@ -60,32 +55,30 @@ st.markdown("""
     }
     div.row-widget.stRadio > div[role="radiogroup"] > label:hover {
         background-color: #E63946;
-        color: white !important;
         border-color: #E63946;
+        color: white !important;
     }
-    /* 선택된 메뉴 강조 */
+    /* 선택된 항목 */
     div.row-widget.stRadio > div[role="radiogroup"] > label[data-checked="true"] {
         background-color: #E63946 !important;
         color: white !important;
         font-weight: bold;
-        box-shadow: 0 4px 10px rgba(230, 57, 70, 0.5);
     }
-    /* 라디오 버튼 동그라미 숨기기 */
     div.row-widget.stRadio > div[role="radiogroup"] > label > div:first-child {
         display: none;
     }
 
-    /* 메인 콘텐츠 카드 스타일 */
+    /* 5. 리소스 카드 스타일 */
     .resource-card {
         background-color: #1F242C;
         border: 1px solid #30363D;
         border-radius: 12px;
-        padding: 25px;
+        padding: 20px;
         margin-bottom: 20px;
     }
     .resource-card h3 { color: white !important; margin: 0 0 10px 0; }
     
-    /* 입력창 스타일 */
+    /* 6. 입력창 스타일 */
     .stTextInput input, .stTextArea textarea {
         background-color: #0d1117 !important; 
         color: white !important;
@@ -94,7 +87,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 로컬 파일 시스템 함수 ---
+# --- 3. 파일 시스템 함수 (로컬/Github 공용 구조) ---
 def get_local_repo_path():
     if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
     return UPLOAD_DIR
@@ -135,10 +128,10 @@ def download_files_as_zip(selected_resources):
                         zf.write(os.path.join(root, file), arcname=file)
     return zip_buffer.getvalue()
 
-# --- 4. AI 프롬프트 (군기 잡힌 버전) ---
+# --- 4. AI 프롬프트 (보고서 스타일) ---
 def generate_pro_description(file_contents_summary, user_hint):
     if not OPENAI_API_KEY or "입력하세요" in OPENAI_API_KEY:
-        return "💡 (API 키가 설정되지 않았습니다.)"
+        return "💡 (API 키가 없어 자동 설명이 생성되지 않았습니다.)"
     
     client = OpenAI(api_key=OPENAI_API_KEY)
     
@@ -152,26 +145,22 @@ def generate_pro_description(file_contents_summary, user_hint):
     [작성자 힌트]
     {user_hint}
     
-    **작성 전략:**
-    1. **Pain Point (문제 정의)**:
-       - "현대 사회는..." 같은 서론 절대 금지.
-       - 업무 현장에서 발생하는 '구체적인 사고', '비효율', '리스크'를 직설적으로 지적할 것.
-       - 예: "수작업 복사/붙여넣기로 인해 월평균 3건의 데이터 누락 발생."
-    
-    2. **Solution (해결책)**:
-       - 코드를 근거로 '어떤 기술'이 '어느 과정'을 대체하는지 설명.
+    **작성 전략 (보고서 톤앤매너):**
+    1. **Pain Point (문제 정의)**: 현업의 구체적인 비효율, 리스크, 휴먼 에러를 날카롭게 지적할 것. (서론/인사말 생략)
+    2. **Solution (해결책)**: 코드를 근거로 어떤 기술이 문제를 해결하는지 명시.
+    3. **Impact (효과)**: 정량적/정성적 기대 효과.
     
     **출력 형식 (Markdown):**
     
     ### 🛑 문제 정의 (Pain Point)
-    (현업의 구체적인 문제점 지적)
+    (내용)
     
     ### 💡 해결 솔루션 (Solution)
-    (코드를 기반으로 한 기술적 해결 방식)
+    (내용)
     * **핵심 로직**: ...
     
     ### 🚀 도입 효과 (Impact)
-    * (정량적/정성적 기대 효과)
+    (내용)
     """
     
     try:
@@ -184,18 +173,15 @@ def generate_pro_description(file_contents_summary, user_hint):
 
 # --- 5. 메인 화면 ---
 def main():
-    # 사이드바 (메뉴가 여기 있어야 함!)
     with st.sidebar:
         st.header("🔴 Red Drive")
-        # 🔥 버전 확인용 텍스트 (업데이트 확인 필수)
-        st.warning(CURRENT_VERSION)
-        
+        st.caption(CURRENT_VERSION) # 버전 확인용 텍스트
         st.write("---")
         
-        # 메뉴 선택창 (라디오 버튼)
-        menu = st.radio("이동할 페이지를 선택하세요", ["리소스 탐색", "관리자 모드"]) 
+        # 메뉴
+        menu = st.radio("이동할 페이지", ["리소스 탐색", "관리자 모드"]) 
 
-    # [페이지 1: 리소스 탐색]
+    # [페이지 1] 리소스 탐색
     if menu == "리소스 탐색":
         st.title("Red Drive | AI Resource Hub")
         st.write("레드사업실의 AI 도구와 데이터를 탐색하고 다운로드하세요.")
@@ -206,6 +192,7 @@ def main():
         
         resources = st.session_state['resources_cache']
         
+        # 검색
         col1, col2 = st.columns([8, 2])
         search = col1.text_input("검색", placeholder="키워드...", label_visibility="collapsed")
         if col2.button("🔄 새로고침"):
@@ -215,9 +202,10 @@ def main():
         if search: resources = [r for r in resources if search.lower() in str(r).lower()]
 
         if not resources:
-            st.info("등록된 리소스가 없습니다. '관리자 모드'에서 파일을 등록해주세요.")
+            st.info("등록된 리소스가 없습니다. 관리자 모드에서 파일을 등록해주세요.")
 
         for res in resources:
+            # 카드 렌더링
             st.markdown(f"""
             <div class="resource-card">
                 <span style="background:#E63946; color:white; padding:4px 10px; border-radius:10px; font-size:0.8em;">{res.get('category')}</span>
@@ -226,23 +214,28 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
+            # 상세 내용
             with st.expander("📄 상세 보고서 및 파일 보기"):
                 st.markdown(res.get('description'))
-                file_html = "".join([f"<div>📄 {f}</div>" for f in res.get('files', [])])
-                st.markdown(f'<div class="file-terminal">{file_html}</div>', unsafe_allow_html=True)
+                # 파일 목록 출력
+                if res.get('files'):
+                    st.caption("포함된 파일:")
+                    for f in res.get('files'):
+                        st.code(f, language="bash")
+                        
+            # 다운로드 체크박스 대신 버튼 사용 고려 (단순화를 위해)
+            # 여기서는 기존 체크박스 로직 유지하되 스타일 간소화
 
-    # [페이지 2: 관리자 모드] - 여기가 사라졌던 메뉴입니다.
+    # [페이지 2] 관리자 모드
     elif menu == "관리자 모드":
         st.title("🛠️ 관리자 모드")
         
-        pwd = st.text_input("관리자 비밀번호를 입력하세요", type="password")
-        
+        pwd = st.text_input("관리자 비밀번호", type="password")
         if pwd == ADMIN_PASSWORD:
             st.success("인증되었습니다.")
             
             tab1, tab2 = st.tabs(["📤 신규 등록", "🗑️ 삭제"])
             
-            # 신규 등록 탭
             with tab1:
                 with st.form("reg"):
                     st.subheader("파일 등록 및 AI 분석")
@@ -261,12 +254,11 @@ def main():
                                 desc = generate_pro_description(summary, hint)
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
                                 upload_to_local(folder_name=title, files=files, meta_data=meta)
-                            st.success("등록 완료! '리소스 탐색' 메뉴로 이동해 확인하세요.")
+                            st.success("등록 완료! 탐색 탭에서 확인하세요.")
                             del st.session_state['resources_cache']
                         else:
                             st.error("제목과 파일을 모두 입력해주세요.")
 
-            # 삭제 탭
             with tab2:
                 if st.button("목록 갱신"): st.session_state['resources_cache'] = load_resources_from_local()
                 res_list = st.session_state.get('resources_cache', [])
@@ -278,8 +270,6 @@ def main():
                         st.success("삭제됨")
                         del st.session_state['resources_cache']
                         st.rerun()
-        elif pwd:
-            st.error("비밀번호가 틀렸습니다.")
 
 if __name__ == "__main__":
     main()
