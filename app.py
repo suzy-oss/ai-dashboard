@@ -5,11 +5,11 @@ import io
 import zipfile
 import re
 import time
-from github import Github, UnknownObjectException, GithubException  # 📌 GithubException 추가
+from github import Github, GithubException  # 📌 GithubException 필수 Import
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.6 (최종 수정: 업로드 강제 처리 및 파일명 정제)"
+CURRENT_VERSION = "🚀 v11.7 (최종 해결: 선 생성 후 업데이트 전략 적용)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -74,7 +74,7 @@ st.markdown("""
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
 
-    /* 🛠️ [드롭박스(Selectbox) 디자인] */
+    /* 🛠️ [드롭박스(Selectbox) 디자인 수정] */
     div[data-baseweb="select"] > div {
         background-color: #262730 !important;
         border-color: #4A4A4A !important;
@@ -190,24 +190,22 @@ def load_resources_from_github():
     except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
-# 📌 [핵심] 안전한 파일 업로드 헬퍼 함수 (Try-Catch-Retry)
+# 📌 [핵심] "무조건 생성 시도 -> 실패하면 업데이트" 전략 (가장 안전함)
 def safe_create_or_update(repo, file_path, message, content):
     try:
-        # 1. 먼저 파일 존재 여부 확인 (Get)
-        existing_file = repo.get_contents(file_path)
-        # 2. 존재하면 업데이트
-        repo.update_file(file_path, message, content, existing_file.sha)
-    except UnknownObjectException:
-        # 3. 존재하지 않으면 생성
-        try:
-            repo.create_file(file_path, message, content)
-        except GithubException as e:
-            # 4. 생성 중 에러 발생 (422: 이미 존재함 등) -> 강제 업데이트 재시도
-            if e.status == 422 or e.status == 409:
-                existing_file = repo.get_contents(file_path)
-                repo.update_file(file_path, message, content, existing_file.sha)
-            else:
-                raise e # 다른 에러면 그대로 예외 발생
+        # 1. 일단 생성을 시도합니다. (Create)
+        # GitHub API는 폴더가 없으면 알아서 만들어줍니다.
+        repo.create_file(file_path, message, content)
+    except GithubException as e:
+        # 2. 만약 422 에러(Validation Failed)나 409(Conflict)가 뜨면?
+        # "이미 파일이 존재한다"는 뜻입니다.
+        if e.status == 422 or e.status == 409:
+            # 3. 이제는 파일이 있다는 걸 확신하므로, 안전하게 Get해서 Update합니다.
+            existing_file = repo.get_contents(file_path)
+            repo.update_file(file_path, message, content, existing_file.sha)
+        else:
+            # 다른 에러라면 진짜 문제이므로 발생시킴
+            raise e
 
 def upload_to_github(folder_name, files, meta_data):
     repo = get_repo()
@@ -215,11 +213,17 @@ def upload_to_github(folder_name, files, meta_data):
     
     # 1. 개별 파일 업로드
     for file in files:
-        # 파일명 정제 (공백, 괄호 등 특수문자를 _로 변환하여 URL 오류 방지)
-        safe_filename = re.sub(r'[\\/:*?"<>| ]', '_', file.name)
+        # 한글명이나 특수문자 때문에 URL 에러가 나지 않도록 안전하게 정제하되, 확장자는 유지
+        safe_filename = file.name # 일단 원본 유지 (requests 라이브러리가 대부분 처리함)
+        # 만약 문제생기면 아래 주석 해제하여 특수문자 제거
+        # safe_filename = re.sub(r'[\\/:*?"<>|]', '_', file.name)
+
         file_path = f"{base_path}/{safe_filename}"
         
-        safe_create_or_update(repo, file_path, f"Add {safe_filename}", file.getvalue())
+        # 파일 내용을 바이트로 읽기
+        content_bytes = file.getvalue()
+        
+        safe_create_or_update(repo, file_path, f"Add {safe_filename}", content_bytes)
             
     # 2. 메타데이터(info.json) 업로드
     json_path = f"{base_path}/info.json"
@@ -238,19 +242,17 @@ def download_zip(selected_objs):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in selected_objs:
-            # ZIP 내부 폴더명으로 사용할 제목 가져오기 (특수문자 제거)
+            # ZIP 내부 폴더명으로 사용할 제목
             safe_folder_name = re.sub(r'[\\/:*?"<>|]', '_', res.get('title', 'Untitled'))
             
             contents = repo.get_contents(res['path'])
             for c in contents:
-                # info.json 제외하고 압축에 추가
                 if c.name != "info.json":
-                    # 압축 파일 내 경로: [폴더명]/[파일명]
                     zip_path = f"{safe_folder_name}/{c.name}"
                     zf.writestr(zip_path, c.decoded_content)
     return zip_buffer.getvalue()
 
-# --- 4. AI 설명 생성 (파일 내용 읽기 포함) ---
+# --- 4. AI 설명 생성 ---
 def generate_desc(file_contents_str, hint):
     if not OPENAI_API_KEY: return "API 키가 설정되지 않았습니다."
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -304,14 +306,12 @@ def main():
     if "탐색" in menu:
         st.title("Red Drive | AI 리소스 센터")
         
-        # 데이터 로드
         if 'resources' not in st.session_state:
             with st.spinner("데이터 로딩 중..."):
                 st.session_state['resources'] = load_resources_from_github()
         
         resources = st.session_state['resources']
         
-        # 현황판
         m1, m2, m3 = st.columns(3)
         m1.metric("총 리소스", f"{len(resources)}개")
         total_files = sum([len(r.get('files', [])) for r in resources])
@@ -320,7 +320,6 @@ def main():
         
         st.divider()
 
-        # 검색
         c1, c2 = st.columns([5, 1])
         search = c1.text_input("검색", placeholder="키워드 입력...", label_visibility="collapsed")
         if c2.button("🔄 새로고침"):
@@ -329,7 +328,6 @@ def main():
             st.rerun()
         if search: resources = [r for r in resources if search.lower() in str(r).lower()]
 
-        # 리소스 목록
         if 'selected' not in st.session_state: st.session_state['selected'] = []
         
         if not resources:
@@ -339,7 +337,6 @@ def main():
             for idx, res in enumerate(resources):
                 with cols[idx % 2]:
                     with st.container():
-                        # 요약 텍스트 정제
                         desc_raw = res.get('description', '')
                         desc_clean = clean_text_for_preview(desc_raw)
 
@@ -373,7 +370,7 @@ def main():
             c_info, c_btn = st.columns([8, 2])
             c_info.success(f"{len(st.session_state['selected'])}개 선택됨")
             if c_btn.button("📦 다운로드 (ZIP)", type="primary", use_container_width=True):
-                st.snow()
+                st.snow() # 눈내림 효과
                 target_objs = [r for r in resources if r['id'] in st.session_state['selected']]
                 with st.spinner("압축 중... (폴더별 정리 중)"):
                     zip_data = download_zip(target_objs)
@@ -388,11 +385,11 @@ def main():
                 with st.form("upl"):
                     title = st.text_input("제목 (한글)")
                     cat = st.selectbox("카테고리", ["Workflow", "Prompt", "Data", "Tool"])
-                    files = st.file_uploader("파일 업로드 (코드 내용을 분석합니다)", accept_multiple_files=True)
+                    files = st.file_uploader("파일 업로드", accept_multiple_files=True)
                     hint = st.text_area("AI 힌트")
                     if st.form_submit_button("등록"):
                         if title and files:
-                            with st.spinner("AI가 파일 내용을 읽고 분석 중입니다..."):
+                            with st.spinner("AI가 분석 및 업로드 중입니다..."):
                                 content_summary = ""
                                 for f in files:
                                     if f.name.endswith(('.py', '.js', '.json', '.txt', '.md', '.html', '.css', '.gs', '.csv')):
@@ -406,11 +403,15 @@ def main():
 
                                 desc = generate_desc(content_summary, hint)
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
-                                folder_name = "".join(x for x in title if x.isalnum()) + "_" + os.urandom(4).hex()
+                                
+                                # 한글 폴더명 유지 (GitHub에서 잘 동작함)
+                                safe_title = "".join(x for x in title if x.isalnum()) # 특수문자만 제거, 한글 유지
+                                folder_name = f"{safe_title}_{os.urandom(4).hex()}"
+                                
                                 upload_to_github(folder_name, files, meta)
                             
-                            st.balloons()
-                            st.success("등록이 완료되었습니다! (2초 후 새로고침)")
+                            st.balloons() # 풍선 효과
+                            st.success("등록 완료! (잠시 후 새로고침 됩니다)")
                             time.sleep(2.0)
                             
                             if 'resources' in st.session_state:
