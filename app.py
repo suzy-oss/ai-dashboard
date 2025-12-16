@@ -4,11 +4,12 @@ import json
 import io
 import zipfile
 import re
+import time  # 📌 풍선 효과 대기 시간을 위해 추가
 from github import Github
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.1 (안정화 패치: 세션 상태 관리 수정)"
+CURRENT_VERSION = "🚀 v11.2 (풍선 효과 복구 & 드롭다운 CSS 핫픽스)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -30,7 +31,7 @@ st.markdown("""
     /* 폰트 불러오기 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     
-    /* 🚨 [핵심 수정] 모든 요소(*)가 아니라, 텍스트 요소에만 폰트를 적용하여 아이콘 깨짐 방지 */
+    /* 텍스트 요소에만 폰트 적용 */
     html, body, p, h1, h2, h3, h4, h5, h6, span, div, label, input, textarea, button {
         font-family: Pretendard, sans-serif;
     }
@@ -40,8 +41,6 @@ st.markdown("""
 
     /* 불필요한 UI 숨김 */
     .stDeployButton, header, div[data-testid="stStatusWidget"] { display: none !important; }
-    
-    /* 🚨 툴팁/단축키 도움말 텍스트가 겹치지 않도록 숨김 */
     div[data-testid="stTooltipHoverTarget"] { display: none !important; }
 
     /* 📂 사이드바 스타일 */
@@ -50,7 +49,7 @@ st.markdown("""
         border-right: 1px solid #30363D;
     }
     
-    /* 🔘 메뉴 버튼 스타일 (반응형) */
+    /* 🔘 메뉴 버튼 스타일 */
     div[role="radiogroup"] { gap: 8px; display: flex; flex-direction: column; }
     div[role="radiogroup"] label {
         background-color: transparent;
@@ -75,35 +74,46 @@ st.markdown("""
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
 
-    /* 🛠️ [드롭박스 해결] Selectbox 디자인 강제 지정 */
-    /* 1. 닫혀있을 때 보이는 박스 */
+    /* 🛠️ [드롭박스(Selectbox) 긴급 수정] */
+    /* 1. 선택 박스 자체 스타일 */
     div[data-baseweb="select"] > div {
         background-color: #262730 !important;
-        color: white !important;
         border-color: #4A4A4A !important;
-    }
-    /* 2. 텍스트 색상 강제 흰색 */
-    div[data-baseweb="select"] span {
         color: white !important;
     }
-    /* 3. 화살표 아이콘 색상 */
-    div[data-baseweb="select"] svg {
-        fill: white !important;
-    }
-    /* 4. 펼쳐진 메뉴 리스트 (팝업) */
-    div[data-baseweb="popover"], div[data-baseweb="menu"], ul {
+    
+    /* 2. 드롭다운 팝업 컨테이너 (배경색 강제 지정) */
+    div[data-baseweb="popover"], div[data-baseweb="menu"] {
         background-color: #1F242C !important;
+        border: 1px solid #444 !important;
     }
-    /* 5. 옵션 항목들 */
-    li[role="option"] {
+
+    /* 3. 리스트 아이템 (옵션들) 텍스트 색상 및 배경 */
+    div[data-baseweb="popover"] li, div[data-baseweb="menu"] li {
+        background-color: #1F242C !important; /* 평상시 배경 */
+        color: white !important;               /* 글자색 흰색 강제 */
+    }
+
+    /* 4. 마우스 호버(Hover) 시 스타일 */
+    div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
+        background-color: #E63946 !important; /* 빨간색 하이라이트 */
         color: white !important;
-        background-color: transparent !important;
     }
-    /* 6. 마우스 올렸을 때 / 선택된 항목 */
-    li[role="option"]:hover, li[role="option"][aria-selected="true"] {
+
+    /* 5. 선택된 아이템 스타일 */
+    div[data-baseweb="popover"] li[aria-selected="true"], div[data-baseweb="menu"] li[aria-selected="true"] {
         background-color: #E63946 !important;
         color: white !important;
         font-weight: bold;
+    }
+
+    /* 6. 내부 텍스트 강제 흰색 (중요) */
+    div[data-baseweb="select"] span, div[data-baseweb="menu"] span {
+        color: white !important;
+    }
+    /* 아이콘 색상 */
+    div[data-baseweb="select"] svg {
+        fill: white !important;
     }
 
     /* 📦 리소스 카드 */
@@ -382,20 +392,22 @@ def main():
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
                                 folder_name = "".join(x for x in title if x.isalnum()) + "_" + os.urandom(4).hex()
                                 upload_to_github(folder_name, files, meta)
-                            st.balloons()
-                            st.success("등록 완료!")
                             
-                            # [수정] 안전하게 상태 초기화
+                            # 📌 [수정] 풍선 효과를 Spinner 밖에서 실행 + 대기 시간 추가
+                            st.balloons()
+                            st.success("등록이 완료되었습니다! (2초 후 새로고침)")
+                            time.sleep(2.0) # 풍선 애니메이션 볼 시간 확보
+                            
                             if 'resources' in st.session_state:
                                 del st.session_state['resources']
-                            st.rerun() # 새로고침 추가
+                            st.rerun()
+
             with t2:
                 if st.button("목록 새로고침"): 
                     st.session_state['resources'] = load_resources_from_github()
                 
                 res_list = st.session_state.get('resources', [])
                 if res_list:
-                    # 🛠️ 드롭박스 수정 완료됨
                     target = st.selectbox("삭제할 리소스", [r['title'] for r in res_list])
                     if st.button("영구 삭제", type="primary"):
                         tgt = next(r for r in res_list if r['title'] == target)
@@ -403,7 +415,6 @@ def main():
                             delete_from_github(tgt['path'])
                         st.success("삭제되었습니다.")
                         
-                        # [수정] 안전하게 상태 초기화
                         if 'resources' in st.session_state:
                             del st.session_state['resources']
                         st.rerun()
