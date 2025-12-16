@@ -9,7 +9,7 @@ from github import Github
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.3 (다운로드 시 눈내림 효과 추가 ❄️)"
+CURRENT_VERSION = "🚀 v11.4 (ZIP 다운로드 시 폴더 자동 분류 기능 추가)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -212,14 +212,22 @@ def delete_from_github(folder_path):
     contents = repo.get_contents(folder_path)
     for c in contents: repo.delete_file(c.path, "Del", c.sha)
 
+# 📌 [수정] ZIP 다운로드 시 폴더별로 정리하는 함수
 def download_zip(selected_objs):
     repo = get_repo()
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in selected_objs:
+            # ZIP 내부 폴더명으로 사용할 제목 가져오기 (특수문자 제거)
+            safe_folder_name = re.sub(r'[\\/:*?"<>|]', '_', res.get('title', 'Untitled'))
+            
             contents = repo.get_contents(res['path'])
             for c in contents:
-                if c.name != "info.json": zf.writestr(c.name, c.decoded_content)
+                # info.json 제외하고 압축에 추가
+                if c.name != "info.json":
+                    # 압축 파일 내 경로: [폴더명]/[파일명]
+                    zip_path = f"{safe_folder_name}/{c.name}"
+                    zf.writestr(zip_path, c.decoded_content)
     return zip_buffer.getvalue()
 
 # --- 4. AI 설명 생성 (파일 내용 읽기 포함) ---
@@ -345,10 +353,10 @@ def main():
             c_info, c_btn = st.columns([8, 2])
             c_info.success(f"{len(st.session_state['selected'])}개 선택됨")
             if c_btn.button("📦 다운로드 (ZIP)", type="primary", use_container_width=True):
-                # 📌 [추가] 다운로드 시작 시 눈내림 효과 실행
+                # 다운로드 시 눈내림 효과
                 st.snow()
                 target_objs = [r for r in resources if r['id'] in st.session_state['selected']]
-                with st.spinner("압축 중..."):
+                with st.spinner("압축 중... (폴더별 정리 중)"):
                     zip_data = download_zip(target_objs)
                     st.download_button("저장하기", zip_data, "RedDrive.zip", "application/zip", use_container_width=True)
 
