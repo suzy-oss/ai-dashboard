@@ -5,11 +5,11 @@ import io
 import zipfile
 import re
 import time
-from github import Github
+from github import Github, UnknownObjectException  # 📌 예외 처리 모듈 추가
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.4 (ZIP 다운로드 시 폴더 자동 분류 기능 추가)"
+CURRENT_VERSION = "🚀 v11.5 (업로드 오류 완벽 수정: 선 조회 후 처리)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -190,29 +190,42 @@ def load_resources_from_github():
     except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
+# 📌 [핵심 수정] 업로드 로직 안전성 강화
 def upload_to_github(folder_name, files, meta_data):
     repo = get_repo()
     base_path = f"{UPLOAD_DIR}/{folder_name}"
+    
+    # 1. 개별 파일 업로드
     for file in files:
+        file_path = f"{base_path}/{file.name}"
         try:
-            repo.create_file(f"{base_path}/{file.name}", f"Add {file.name}", file.getvalue())
-        except:
-            contents = repo.get_contents(f"{base_path}/{file.name}")
-            repo.update_file(contents.path, f"Update {file.name}", file.getvalue(), contents.sha)
+            # 먼저 파일이 존재하는지 확인 (Get)
+            contents = repo.get_contents(file_path)
+            # 존재하면 Update
+            repo.update_file(file_path, f"Update {file.name}", file.getvalue(), contents.sha)
+        except UnknownObjectException:
+            # 존재하지 않으면 (UnknownObject) Create
+            repo.create_file(file_path, f"Add {file.name}", file.getvalue())
             
+    # 2. 메타데이터(info.json) 업로드
+    json_path = f"{base_path}/info.json"
     json_content = json.dumps(meta_data, ensure_ascii=False, indent=4)
+    
     try:
-        repo.create_file(f"{base_path}/info.json", "Add info", json_content)
-    except:
-        c = repo.get_contents(f"{base_path}/info.json")
-        repo.update_file(c.path, "Update info", json_content, c.sha)
+        # 먼저 info.json이 존재하는지 확인
+        contents = repo.get_contents(json_path)
+        # 존재하면 Update
+        repo.update_file(json_path, "Update info", json_content, contents.sha)
+    except UnknownObjectException:
+        # 존재하지 않으면 Create
+        repo.create_file(json_path, "Add info", json_content)
 
 def delete_from_github(folder_path):
     repo = get_repo()
     contents = repo.get_contents(folder_path)
     for c in contents: repo.delete_file(c.path, "Del", c.sha)
 
-# 📌 [수정] ZIP 다운로드 시 폴더별로 정리하는 함수
+# ZIP 다운로드 시 폴더별로 정리하는 함수
 def download_zip(selected_objs):
     repo = get_repo()
     zip_buffer = io.BytesIO()
