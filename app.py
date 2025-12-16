@@ -5,11 +5,12 @@ import io
 import zipfile
 import re
 import time
-from github import Github, GithubException  # 📌 GithubException 필수 Import
+# 📌 GithubException과 UnknownObjectException 모두 import해서 예외 처리를 철벽 방어합니다.
+from github import Github, GithubException, UnknownObjectException
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.7 (최종 해결: 선 생성 후 업데이트 전략 적용)"
+CURRENT_VERSION = "🚀 v11.8 (최종 완결: 확인 절차 제거 & 무조건 생성 모드)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -31,25 +32,18 @@ st.markdown("""
     /* 폰트 불러오기 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     
-    /* 텍스트 요소에만 폰트 적용 */
     html, body, p, h1, h2, h3, h4, h5, h6, span, div, label, input, textarea, button {
         font-family: Pretendard, sans-serif;
     }
-    
-    /* 🔴 전체 배경 */
     .stApp { background-color: #0E1117; color: #FAFAFA; }
-
-    /* 불필요한 UI 숨김 */
     .stDeployButton, header, div[data-testid="stStatusWidget"] { display: none !important; }
     div[data-testid="stTooltipHoverTarget"] { display: none !important; }
 
-    /* 📂 사이드바 스타일 */
     section[data-testid="stSidebar"] {
         background-color: #161B22;
         border-right: 1px solid #30363D;
     }
     
-    /* 🔘 메뉴 버튼 스타일 */
     div[role="radiogroup"] { gap: 8px; display: flex; flex-direction: column; }
     div[role="radiogroup"] label {
         background-color: transparent;
@@ -74,7 +68,6 @@ st.markdown("""
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
 
-    /* 🛠️ [드롭박스(Selectbox) 디자인 수정] */
     div[data-baseweb="select"] > div {
         background-color: #262730 !important;
         border-color: #4A4A4A !important;
@@ -104,7 +97,6 @@ st.markdown("""
         fill: white !important;
     }
 
-    /* 📦 리소스 카드 */
     .resource-card {
         background-color: #1F242C;
         border: 1px solid #30363D;
@@ -130,7 +122,6 @@ st.markdown("""
         margin-bottom: 15px;
     }
 
-    /* Expander 스타일 */
     .streamlit-expanderHeader {
         background-color: #262730 !important;
         color: white !important;
@@ -145,14 +136,12 @@ st.markdown("""
         color: #E0E0E0;
     }
 
-    /* 입력창 스타일 */
     .stTextInput input, .stTextArea textarea {
         background-color: #0E1117 !important; 
         color: white !important; 
         border: 1px solid #30363D !important;
     }
     
-    /* 현황판 */
     div[data-testid="stMetric"] {
         background-color: #161B22; padding: 15px; border-radius: 10px; border: 1px solid #30363D;
     }
@@ -190,21 +179,24 @@ def load_resources_from_github():
     except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
-# 📌 [핵심] "무조건 생성 시도 -> 실패하면 업데이트" 전략 (가장 안전함)
+# 📌 [핵심 수정] 무조건 생성 전략 (Create First, Ask Later)
+# 파일을 읽으려다가(get_contents) 파일이 없으면 에러가 터지니, 아예 읽지 않고 생성부터 합니다.
 def safe_create_or_update(repo, file_path, message, content):
     try:
-        # 1. 일단 생성을 시도합니다. (Create)
-        # GitHub API는 폴더가 없으면 알아서 만들어줍니다.
+        # 1. 일단 생성을 시도합니다. (가장 안전함)
         repo.create_file(file_path, message, content)
     except GithubException as e:
-        # 2. 만약 422 에러(Validation Failed)나 409(Conflict)가 뜨면?
-        # "이미 파일이 존재한다"는 뜻입니다.
+        # 2. 만약 에러가 났는데, 그 이유가 "이미 있어서(422)"라면?
         if e.status == 422 or e.status == 409:
-            # 3. 이제는 파일이 있다는 걸 확신하므로, 안전하게 Get해서 Update합니다.
-            existing_file = repo.get_contents(file_path)
-            repo.update_file(file_path, message, content, existing_file.sha)
+            try:
+                # 3. 그제서야 "아 있구나" 하고 정보를 가져와서 업데이트합니다.
+                existing_file = repo.get_contents(file_path)
+                repo.update_file(file_path, message, content, existing_file.sha)
+            except UnknownObjectException:
+                # 정말 희박한 확률로 여기로 올 수 있으나 안전장치로 둡니다.
+                repo.create_file(file_path, message, content)
         else:
-            # 다른 에러라면 진짜 문제이므로 발생시킴
+            # 다른 문제라면 에러를 띄웁니다.
             raise e
 
 def upload_to_github(folder_name, files, meta_data):
@@ -213,16 +205,14 @@ def upload_to_github(folder_name, files, meta_data):
     
     # 1. 개별 파일 업로드
     for file in files:
-        # 한글명이나 특수문자 때문에 URL 에러가 나지 않도록 안전하게 정제하되, 확장자는 유지
-        safe_filename = file.name # 일단 원본 유지 (requests 라이브러리가 대부분 처리함)
-        # 만약 문제생기면 아래 주석 해제하여 특수문자 제거
-        # safe_filename = re.sub(r'[\\/:*?"<>|]', '_', file.name)
-
+        # 파일명 그대로 사용
+        safe_filename = file.name 
         file_path = f"{base_path}/{safe_filename}"
         
         # 파일 내용을 바이트로 읽기
         content_bytes = file.getvalue()
         
+        # 안전한 업로드 함수 호출
         safe_create_or_update(repo, file_path, f"Add {safe_filename}", content_bytes)
             
     # 2. 메타데이터(info.json) 업로드
@@ -242,7 +232,7 @@ def download_zip(selected_objs):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in selected_objs:
-            # ZIP 내부 폴더명으로 사용할 제목
+            # ZIP 내부 폴더명으로 사용할 제목 (특수문자 제거)
             safe_folder_name = re.sub(r'[\\/:*?"<>|]', '_', res.get('title', 'Untitled'))
             
             contents = repo.get_contents(res['path'])
@@ -404,8 +394,8 @@ def main():
                                 desc = generate_desc(content_summary, hint)
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
                                 
-                                # 한글 폴더명 유지 (GitHub에서 잘 동작함)
-                                safe_title = "".join(x for x in title if x.isalnum()) # 특수문자만 제거, 한글 유지
+                                # 한글 폴더명 유지
+                                safe_title = "".join(x for x in title if x.isalnum()) 
                                 folder_name = f"{safe_title}_{os.urandom(4).hex()}"
                                 
                                 upload_to_github(folder_name, files, meta)
