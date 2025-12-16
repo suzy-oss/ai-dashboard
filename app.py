@@ -3,82 +3,106 @@ import os
 import json
 import io
 import zipfile
+from github import Github
 from openai import OpenAI
 
-# --- 버전 확인용 (업데이트 확인을 위해 필수) ---
-CURRENT_VERSION = "✅ v4.1 (폰트 버그 수정 완료)"
+# --- 버전 정보 (업데이트 확인용) ---
+CURRENT_VERSION = "✨ v5.0 (디자인/기능 완전 복구)"
 
-# --- 1. 설정 ---
-# [로컬 테스트용] - 배포 시에는 st.secrets 사용 권장
-OPENAI_API_KEY = "여기에_키를_입력하세요" 
+# --- 1. 시크릿(Secrets) 로드 (가장 중요!) ---
+# Streamlit Cloud의 Secrets에서 키를 가져옵니다.
+try:
+    GITHUB_TOKEN = st.secrets["general"]["github_token"]
+    REPO_NAME = st.secrets["general"]["repo_name"]
+    OPENAI_API_KEY = st.secrets["general"]["openai_api_key"]
+except Exception as e:
+    st.error(f"🚨 설정 오류: Streamlit Secrets를 찾을 수 없습니다. ({str(e)})")
+    st.stop()
+
 ADMIN_PASSWORD = "1234"
 UPLOAD_DIR = "resources"
 
 st.set_page_config(page_title="Red Drive", layout="wide", page_icon="🔴", initial_sidebar_state="expanded")
 
-# --- 2. CSS 디자인 수정 (폰트 버그 해결) ---
+# --- 2. 디자인(CSS) : 반응형 메뉴 + 다크 테마 + 겹침 해결 ---
 st.markdown("""
 <style>
-    /* 1. 폰트 적용 (아이콘이 깨지지 않도록 !important 제거 및 범위 한정) */
+    /* 폰트 적용 (아이콘 깨짐 방지를 위해 !important 제외) */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     
     html, body, [class*="css"] {
-        font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+        font-family: Pretendard, sans-serif;
     }
     
     /* 🔴 전체 테마: 다크 모드 */
     .stApp { background-color: #0E1117; color: #FAFAFA; }
 
-    /* 2. UI 정리 (배포 버튼 등 불필요한 요소 숨김) */
-    .stDeployButton { display: none !important; }
-    div[data-testid="stStatusWidget"] { display: none !important; }
-    header { visibility: hidden; }
+    /* UI 정리 (불필요한 요소 숨김) */
+    .stDeployButton, header, div[data-testid="stStatusWidget"] { display: none !important; }
     
-    /* 3. 사이드바 스타일 */
+    /* 🚨 텍스트 겹침 문제 해결 (아이콘은 살리고 툴팁만 제거) */
+    div[data-testid="stTooltipHoverTarget"] { display: none !important; }
+    
+    /* 📂 사이드바 스타일 */
     section[data-testid="stSidebar"] {
         background-color: #161B22;
         border-right: 1px solid #30363D;
     }
-    section[data-testid="stSidebar"] * {
-        color: #E6E6E6 !important;
-    }
+    section[data-testid="stSidebar"] * { color: #E6E6E6 !important; }
 
-    /* 4. 메뉴(라디오 버튼) 커스텀 */
+    /* 🔘 메뉴(라디오 버튼) -> 반응형 버튼 스타일로 변신 */
     div.row-widget.stRadio > div[role="radiogroup"] > label {
         background-color: #21262D;
-        padding: 12px;
-        margin-bottom: 8px;
-        border-radius: 8px;
+        padding: 14px 20px;
+        margin-bottom: 10px;
+        border-radius: 10px;
         border: 1px solid #30363D;
         cursor: pointer;
-        transition: 0.2s;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
     div.row-widget.stRadio > div[role="radiogroup"] > label:hover {
-        background-color: #E63946;
+        background-color: #30363D;
         border-color: #E63946;
+        transform: translateY(-2px); /* 살짝 떠오르는 효과 */
         color: white !important;
     }
-    /* 선택된 항목 */
+    /* 선택된 메뉴 강조 */
     div.row-widget.stRadio > div[role="radiogroup"] > label[data-checked="true"] {
         background-color: #E63946 !important;
         color: white !important;
         font-weight: bold;
+        box-shadow: 0 0 15px rgba(230, 57, 70, 0.5); /* 붉은 네온 효과 */
+        border: none;
     }
-    div.row-widget.stRadio > div[role="radiogroup"] > label > div:first-child {
-        display: none;
-    }
+    div.row-widget.stRadio > div[role="radiogroup"] > label > div:first-child { display: none; }
 
-    /* 5. 리소스 카드 스타일 */
+    /* 📦 리소스 카드 (반응형 Hover 효과 복구) */
     .resource-card {
         background-color: #1F242C;
         border: 1px solid #30363D;
-        border-radius: 12px;
-        padding: 20px;
+        border-radius: 15px;
+        padding: 25px;
         margin-bottom: 20px;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     }
-    .resource-card h3 { color: white !important; margin: 0 0 10px 0; }
+    .resource-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        border-color: #E63946;
+    }
+    .resource-card h3 { color: white !important; margin: 0 0 10px 0; font-size: 1.4rem; }
     
-    /* 6. 입력창 스타일 */
+    /* 터미널 스타일 파일 목록 */
+    .file-terminal {
+        background: #0d1117; padding: 15px; border-radius: 8px;
+        color: #7EE787; font-family: monospace; font-size: 0.85em;
+        border: 1px solid #30363D; margin-top: 10px;
+    }
+
+    /* 입력창 스타일 */
     .stTextInput input, .stTextArea textarea {
         background-color: #0d1117 !important; 
         color: white !important;
@@ -87,70 +111,86 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 파일 시스템 함수 (로컬/Github 공용 구조) ---
-def get_local_repo_path():
-    if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
-    return UPLOAD_DIR
+# --- 3. GitHub 연동 함수 (영구 저장용) ---
+def get_repo():
+    g = Github(GITHUB_TOKEN)
+    return g.get_repo(REPO_NAME)
 
-def load_resources_from_local():
+def load_resources_from_github():
     resources = []
-    repo_path = get_local_repo_path()
-    for item in os.listdir(repo_path):
-        item_path = os.path.join(repo_path, item)
-        if os.path.isdir(item_path):
-            try:
-                with open(os.path.join(item_path, "info.json"), "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    data['id'], data['path'] = item, item_path
-                    resources.append(data)
-            except: continue
+    repo = get_repo()
+    try:
+        contents = repo.get_contents(UPLOAD_DIR)
+        for content in contents:
+            if content.type == "dir":
+                try:
+                    info_file = repo.get_contents(f"{content.path}/info.json")
+                    info_data = json.loads(info_file.decoded_content.decode("utf-8"))
+                    info_data['id'] = content.name
+                    info_data['path'] = content.path
+                    resources.append(info_data)
+                except: continue
+    except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
-def upload_to_local(folder_name, files, meta_data):
-    base_path = os.path.join(get_local_repo_path(), folder_name)
-    os.makedirs(base_path, exist_ok=True)
+def upload_to_github(folder_name, files, meta_data):
+    repo = get_repo()
+    base_path = f"{UPLOAD_DIR}/{folder_name}"
+    
     for file in files:
-        with open(os.path.join(base_path, file.name), "wb") as f: f.write(file.getvalue())
-    with open(os.path.join(base_path, "info.json"), "w", encoding="utf-8") as f:
-        json.dump(meta_data, f, ensure_ascii=False, indent=4)
+        file_content = file.getvalue()
+        file_path = f"{base_path}/{file.name}"
+        try:
+            repo.create_file(file_path, f"Add {file.name}", file_content)
+        except:
+            contents = repo.get_contents(file_path)
+            repo.update_file(contents.path, f"Update {file.name}", file_content, contents.sha)
+            
+    json_content = json.dumps(meta_data, ensure_ascii=False, indent=4)
+    json_path = f"{base_path}/info.json"
+    try:
+        repo.create_file(json_path, "Add info.json", json_content)
+    except:
+        contents = repo.get_contents(json_path)
+        repo.update_file(contents.path, "Update info.json", json_content, contents.sha)
 
-def delete_from_local(folder_path):
-    import shutil
-    if os.path.exists(folder_path): shutil.rmtree(folder_path)
+def delete_from_github(folder_path):
+    repo = get_repo()
+    contents = repo.get_contents(folder_path)
+    for content in contents:
+        repo.delete_file(content.path, "Delete resource", content.sha)
 
 def download_files_as_zip(selected_resources):
+    repo = get_repo()
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in selected_resources:
-            for root, _, files in os.walk(res['path']):
-                for file in files:
-                    if file != "info.json":
-                        zf.write(os.path.join(root, file), arcname=file)
+            folder_path = res['path']
+            contents = repo.get_contents(folder_path)
+            for content in contents:
+                if content.name == "info.json": continue
+                zf.writestr(content.name, content.decoded_content)
     return zip_buffer.getvalue()
 
-# --- 4. AI 프롬프트 (보고서 스타일) ---
+# --- 4. AI 프롬프트 (군기 잡힌 버전) ---
 def generate_pro_description(file_contents_summary, user_hint):
-    if not OPENAI_API_KEY or "입력하세요" in OPENAI_API_KEY:
-        return "💡 (API 키가 없어 자동 설명이 생성되지 않았습니다.)"
+    if not OPENAI_API_KEY:
+        return "💡 (API 키가 로드되지 않았습니다. Secrets를 확인하세요.)"
     
     client = OpenAI(api_key=OPENAI_API_KEY)
-    
     prompt = f"""
     당신은 기업의 '업무 효율화 컨설턴트'입니다. 
-    업로드된 도구(파일)를 분석하여, 현업 관리자에게 보고할 '도입 제안서'를 작성하세요.
+    업로드된 도구를 분석하여 '도입 제안서'를 작성하세요.
     
-    [분석할 파일 내용]
+    [파일 내용 요약]
     {file_contents_summary}
-    
     [작성자 힌트]
     {user_hint}
     
-    **작성 전략 (보고서 톤앤매너):**
-    1. **Pain Point (문제 정의)**: 현업의 구체적인 비효율, 리스크, 휴먼 에러를 날카롭게 지적할 것. (서론/인사말 생략)
-    2. **Solution (해결책)**: 코드를 근거로 어떤 기술이 문제를 해결하는지 명시.
-    3. **Impact (효과)**: 정량적/정성적 기대 효과.
-    
-    **출력 형식 (Markdown):**
+    **작성 가이드:**
+    - 서론(현대 사회는.. 등) 금지. 바로 본론으로 진입.
+    - 구체적인 Pain Point(문제)와 Solution(해결책) 위주로 작성.
+    - Markdown 형식 준수.
     
     ### 🛑 문제 정의 (Pain Point)
     (내용)
@@ -162,7 +202,6 @@ def generate_pro_description(file_contents_summary, user_hint):
     ### 🚀 도입 효과 (Impact)
     (내용)
     """
-    
     try:
         response = client.chat.completions.create(
             model="gpt-4o", messages=[{"role": "user", "content": prompt}], temperature=0.7
@@ -173,26 +212,27 @@ def generate_pro_description(file_contents_summary, user_hint):
 
 # --- 5. 메인 화면 ---
 def main():
+    # 사이드바
     with st.sidebar:
         st.header("🔴 Red Drive")
-        st.caption(CURRENT_VERSION) # 버전 확인용 텍스트
+        st.caption(CURRENT_VERSION)
         st.write("---")
-        
-        # 메뉴
-        menu = st.radio("이동할 페이지", ["리소스 탐색", "관리자 모드"]) 
+        menu = st.radio("MENU", ["리소스 탐색", "관리자 모드"]) 
 
-    # [페이지 1] 리소스 탐색
+    # [리소스 탐색 탭]
     if menu == "리소스 탐색":
         st.title("Red Drive | AI Resource Hub")
         st.write("레드사업실의 AI 도구와 데이터를 탐색하고 다운로드하세요.")
         st.divider()
 
+        # 데이터 로드 (GitHub)
         if 'resources_cache' not in st.session_state:
-            st.session_state['resources_cache'] = load_resources_from_local()
+            with st.spinner("🚀 GitHub에서 데이터를 불러오는 중..."):
+                st.session_state['resources_cache'] = load_resources_from_github()
         
         resources = st.session_state['resources_cache']
         
-        # 검색
+        # 검색 및 필터
         col1, col2 = st.columns([8, 2])
         search = col1.text_input("검색", placeholder="키워드...", label_visibility="collapsed")
         if col2.button("🔄 새로고침"):
@@ -201,11 +241,21 @@ def main():
 
         if search: resources = [r for r in resources if search.lower() in str(r).lower()]
 
+        # ✅ 전체 선택 / 해제 버튼 (복구됨)
+        if 'selected_ids' not in st.session_state: st.session_state['selected_ids'] = []
+        c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 7])
+        if c_btn1.button("✅ 전체 선택"):
+            st.session_state['selected_ids'] = [r['id'] for r in resources]
+            st.rerun()
+        if c_btn2.button("❌ 선택 해제"):
+            st.session_state['selected_ids'] = []
+            st.rerun()
+
         if not resources:
             st.info("등록된 리소스가 없습니다. 관리자 모드에서 파일을 등록해주세요.")
 
+        # 리소스 카드 출력
         for res in resources:
-            # 카드 렌더링
             st.markdown(f"""
             <div class="resource-card">
                 <span style="background:#E63946; color:white; padding:4px 10px; border-radius:10px; font-size:0.8em;">{res.get('category')}</span>
@@ -214,19 +264,35 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            # 상세 내용
             with st.expander("📄 상세 보고서 및 파일 보기"):
                 st.markdown(res.get('description'))
-                # 파일 목록 출력
-                if res.get('files'):
-                    st.caption("포함된 파일:")
-                    for f in res.get('files'):
-                        st.code(f, language="bash")
-                        
-            # 다운로드 체크박스 대신 버튼 사용 고려 (단순화를 위해)
-            # 여기서는 기존 체크박스 로직 유지하되 스타일 간소화
+                file_html = "".join([f"<div>📄 {f}</div>" for f in res.get('files', [])])
+                st.markdown(f'<div class="file-terminal">{file_html}</div>', unsafe_allow_html=True)
+            
+            # 체크박스 (UI 분리)
+            is_checked = res['id'] in st.session_state['selected_ids']
+            if st.checkbox(f"📥 다운로드 담기 ({res['title']})", value=is_checked, key=res['id']):
+                if res['id'] not in st.session_state['selected_ids']:
+                    st.session_state['selected_ids'].append(res['id'])
+                    st.rerun()
+            else:
+                if res['id'] in st.session_state['selected_ids']:
+                    st.session_state['selected_ids'].remove(res['id'])
+                    st.rerun()
+            st.write("") 
 
-    # [페이지 2] 관리자 모드
+        # ✅ 하단 플로팅 다운로드 버튼 (복구됨)
+        if st.session_state['selected_ids']:
+            st.markdown("---")
+            st.success(f"현재 {len(st.session_state['selected_ids'])}개의 리소스가 선택되었습니다.")
+            
+            selected_objs = [r for r in resources if r['id'] in st.session_state['selected_ids']]
+            if st.button("📦 선택한 리소스 일괄 다운로드 (ZIP)", type="primary", use_container_width=True):
+                with st.spinner("GitHub에서 파일을 다운로드하여 압축 중입니다..."):
+                    zip_data = download_files_as_zip(selected_objs)
+                    st.download_button("⬇️ ZIP 파일 저장", zip_data, "RedDrive_Resources.zip", "application/zip", use_container_width=True)
+
+    # [관리자 모드 탭]
     elif menu == "관리자 모드":
         st.title("🛠️ 관리자 모드")
         
@@ -246,28 +312,37 @@ def main():
                     
                     if st.form_submit_button("등록 시작"):
                         if title and files:
-                            with st.spinner("AI가 분석 중..."):
+                            # 1. AI 분석
+                            with st.spinner("AI가 코드를 읽고 분석 중..."):
                                 summary = ""
                                 for f in files:
                                     try: summary += f"\nFile: {f.name}\n{f.getvalue().decode('utf-8')[:1000]}"
                                     except: summary += f"\nFile: {f.name} (Binary)"
                                 desc = generate_pro_description(summary, hint)
+                            
+                            # 2. GitHub 업로드
+                            with st.spinner("GitHub에 저장 중..."):
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
-                                upload_to_local(folder_name=title, files=files, meta_data=meta)
-                            st.success("등록 완료! 탐색 탭에서 확인하세요.")
+                                folder_name = "".join([c if c.isalnum() else "_" for c in title]) + "_" + os.urandom(4).hex()
+                                upload_to_github(folder_name, files, meta)
+                            
+                            # ✅ 풍선 효과 복구!
+                            st.balloons() 
+                            st.success("등록 완료! 리소스 탐색 탭에서 확인하세요.")
                             del st.session_state['resources_cache']
                         else:
                             st.error("제목과 파일을 모두 입력해주세요.")
 
             with tab2:
-                if st.button("목록 갱신"): st.session_state['resources_cache'] = load_resources_from_local()
+                if st.button("목록 갱신"): st.session_state['resources_cache'] = load_resources_from_github()
                 res_list = st.session_state.get('resources_cache', [])
                 if res_list:
                     target = st.selectbox("삭제 대상", [r['title'] for r in res_list])
                     if st.button("영구 삭제"):
                         tgt = next(r for r in res_list if r['title'] == target)
-                        delete_from_local(tgt['path'])
-                        st.success("삭제됨")
+                        with st.spinner("GitHub에서 삭제 중..."):
+                            delete_from_github(tgt['path'])
+                        st.success("삭제되었습니다.")
                         del st.session_state['resources_cache']
                         st.rerun()
 
