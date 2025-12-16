@@ -4,13 +4,13 @@ import json
 import io
 import zipfile
 import re
-from github import Github, GithubException # 예외 처리를 위해 추가
+from github import Github
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🛡️ v12.0 (오류 방지 + 즉시 갱신 + 드롭박스 수리)"
+CURRENT_VERSION = "🚀 v11.0 (아이콘/드롭박스/폰트 완벽 해결)"
 
-# --- 1. 설정 및 시크릿 로드 ---
+# --- 1. 시크릿 로드 ---
 try:
     GITHUB_TOKEN = st.secrets["general"]["github_token"]
     REPO_NAME = st.secrets["general"]["repo_name"]
@@ -24,26 +24,25 @@ UPLOAD_DIR = "resources"
 
 st.set_page_config(page_title="Red Drive", layout="wide", page_icon="🔴", initial_sidebar_state="expanded")
 
-# --- 2. CSS 디자인 (드롭박스 가시성 + 아이콘 보호) ---
+# --- 2. CSS 디자인 (아이콘 보호 + 드롭박스 시인성 + 다크모드) ---
 st.markdown("""
 <style>
-    /* 폰트 적용: 아이콘 깨짐 방지 */
+    /* 폰트 불러오기 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     
+    /* 🚨 [핵심 수정] 모든 요소(*)가 아니라, 텍스트 요소에만 폰트를 적용하여 아이콘 깨짐 방지 */
     html, body, p, h1, h2, h3, h4, h5, h6, span, div, label, input, textarea, button {
-        font-family: Pretendard, sans-serif !important;
+        font-family: Pretendard, sans-serif;
     }
     
-    .material-icons, .material-symbols-rounded, svg, i {
-        font-family: 'Material Icons', sans-serif !important; 
-        font-style: normal !important;
-    }
-
     /* 🔴 전체 배경 */
     .stApp { background-color: #0E1117; color: #FAFAFA; }
 
-    /* 불필요 UI 숨김 */
-    .stDeployButton, header, div[data-testid="stStatusWidget"], div[data-testid="stTooltipHoverTarget"] { display: none !important; }
+    /* 불필요한 UI 숨김 */
+    .stDeployButton, header, div[data-testid="stStatusWidget"] { display: none !important; }
+    
+    /* 🚨 툴팁/단축키 도움말 텍스트가 겹치지 않도록 숨김 */
+    div[data-testid="stTooltipHoverTarget"] { display: none !important; }
 
     /* 📂 사이드바 스타일 */
     section[data-testid="stSidebar"] {
@@ -51,13 +50,13 @@ st.markdown("""
         border-right: 1px solid #30363D;
     }
     
-    /* 🚨 메뉴 버튼 스타일 */
+    /* 🔘 메뉴 버튼 스타일 (반응형) */
     div[role="radiogroup"] { gap: 8px; display: flex; flex-direction: column; }
     div[role="radiogroup"] label {
         background-color: transparent;
         border: 1px solid transparent;
         border-radius: 6px;
-        padding: 10px 15px;
+        padding: 12px 16px;
         margin: 0 !important;
         transition: all 0.2s ease;
         color: #8b949e !important;
@@ -76,34 +75,35 @@ st.markdown("""
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
 
-    /* 🛠️ [드롭박스 최종 수리] 색상 강제 지정 */
-    /* 선택 박스 자체 */
+    /* 🛠️ [드롭박스 해결] Selectbox 디자인 강제 지정 */
+    /* 1. 닫혀있을 때 보이는 박스 */
     div[data-baseweb="select"] > div {
         background-color: #262730 !important;
         color: white !important;
         border-color: #4A4A4A !important;
     }
-    /* 텍스트 강제 흰색 */
+    /* 2. 텍스트 색상 강제 흰색 */
     div[data-baseweb="select"] span {
         color: white !important;
     }
-    /* 팝업 메뉴 컨테이너 */
-    div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"] {
+    /* 3. 화살표 아이콘 색상 */
+    div[data-baseweb="select"] svg {
+        fill: white !important;
+    }
+    /* 4. 펼쳐진 메뉴 리스트 (팝업) */
+    div[data-baseweb="popover"], div[data-baseweb="menu"], ul {
         background-color: #1F242C !important;
     }
-    /* 리스트 아이템 (옵션) */
+    /* 5. 옵션 항목들 */
     li[role="option"] {
         color: white !important;
-        background-color: #1F242C !important; 
+        background-color: transparent !important;
     }
-    /* 마우스 호버 시 */
+    /* 6. 마우스 올렸을 때 / 선택된 항목 */
     li[role="option"]:hover, li[role="option"][aria-selected="true"] {
         background-color: #E63946 !important;
         color: white !important;
-    }
-    /* 선택된 값 (Single Value) */
-    div[data-testid="stSelectbox"] div[class*="singleValue"] {
-        color: white !important;
+        font-weight: bold;
     }
 
     /* 📦 리소스 카드 */
@@ -130,8 +130,6 @@ st.markdown("""
         height: 4.5em; overflow: hidden;
         display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
         margin-bottom: 15px;
-        background-color: #161B22;
-        padding: 8px; border-radius: 6px;
     }
 
     /* Expander 스타일 */
@@ -176,7 +174,6 @@ def get_repo():
     g = Github(GITHUB_TOKEN)
     return g.get_repo(REPO_NAME)
 
-# 🔄 캐시 최적화: 변경이 있을 때만 clear하기 위해 사용
 @st.cache_data(ttl=60)
 def load_resources_from_github():
     resources = []
@@ -212,40 +209,29 @@ def upload_to_github(folder_name, files, meta_data):
         c = repo.get_contents(f"{base_path}/info.json")
         repo.update_file(c.path, "Update info", json_content, c.sha)
 
-# 🚨 [안정성 강화] 삭제 로직에 예외 처리 추가
 def delete_from_github(folder_path):
     repo = get_repo()
-    try:
-        contents = repo.get_contents(folder_path)
-        for c in contents:
-            repo.delete_file(c.path, "Del", c.sha)
-    except GithubException as e:
-        # 이미 삭제된 파일(404)이면 그냥 넘어감 (사용자 입장에서는 삭제된 거니까 OK)
-        if e.status == 404:
-            pass 
-        else:
-            raise e # 다른 에러면 멈춤
+    contents = repo.get_contents(folder_path)
+    for c in contents: repo.delete_file(c.path, "Del", c.sha)
 
 def download_zip(selected_objs):
     repo = get_repo()
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in selected_objs:
-            try:
-                contents = repo.get_contents(res['path'])
-                for c in contents:
-                    if c.name != "info.json": zf.writestr(c.name, c.decoded_content)
-            except: continue
+            contents = repo.get_contents(res['path'])
+            for c in contents:
+                if c.name != "info.json": zf.writestr(c.name, c.decoded_content)
     return zip_buffer.getvalue()
 
-# --- 4. AI 설명 생성 ---
+# --- 4. AI 설명 생성 (파일 내용 읽기 포함) ---
 def generate_desc(file_contents_str, hint):
     if not OPENAI_API_KEY: return "API 키가 설정되지 않았습니다."
     client = OpenAI(api_key=OPENAI_API_KEY)
     
     prompt = f"""
     당신은 기업의 수석 IT 컨설턴트입니다. 
-    업로드된 '파일 내용'을 분석하여 임원 보고용 문서를 작성하세요.
+    사용자가 업로드한 '파일의 실제 내용'을 분석하여 임원 및 실무자 보고용 문서를 작성하세요.
     
     [분석할 파일 내용]:
     {file_contents_str}
@@ -254,7 +240,7 @@ def generate_desc(file_contents_str, hint):
     {hint}
     
     **작성 가이드:**
-    1. 서론(안녕하세요 등) 절대 금지.
+    1. 서론(안녕하세요 등) 절대 금지. 바로 본론 진입.
     2. 전문적인 비즈니스 용어 사용.
     3. 화살표(->)를 사용하여 데이터 흐름을 명확히 표현.
     4. 언어: 한국어 (Korean)
@@ -262,19 +248,19 @@ def generate_desc(file_contents_str, hint):
     **출력 포맷 (Markdown):**
     
     ### 📋 시스템 요약 (Executive Summary)
-    (이 도구가 무엇인지, 비즈니스 가치 2줄 요약)
+    (이 도구가 무엇인지, 어떤 비즈니스 가치를 주는지 2줄 요약)
 
     ### ⚙️ 아키텍처 및 데이터 흐름
     * **Flow**: `[입력] -> [처리] -> [출력]` (실제 로직 반영)
     * **핵심 구성 요소**:
-        * **파일명**: (역할)
+        * **파일명**: (해당 파일의 구체적 역할과 로직 설명)
 
     ### 🛠️ 기술적 메커니즘 (Deep Dive)
     * **트리거**: (언제 실행되는지)
-    * **로직**: (데이터 처리 방식)
+    * **로직**: (데이터가 어떻게 가공되는지 코드 레벨 분석)
 
     ### ✨ 비즈니스 임팩트
-    (도입 효과)
+    (도입 시 정량적/정성적 기대 효과)
     """
     try:
         res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user","content":prompt}])
@@ -308,15 +294,12 @@ def main():
         
         st.divider()
 
-        # 검색/새로고침
+        # 검색
         c1, c2 = st.columns([5, 1])
         search = c1.text_input("검색", placeholder="키워드 입력...", label_visibility="collapsed")
         if c2.button("🔄 새로고침"):
-            # 🚨 강제 갱신 로직
-            st.cache_data.clear()
-            if 'resources' in st.session_state: del st.session_state['resources']
+            del st.session_state['resources']
             st.rerun()
-            
         if search: resources = [r for r in resources if search.lower() in str(r).lower()]
 
         # 리소스 목록
@@ -377,11 +360,11 @@ def main():
                 with st.form("upl"):
                     title = st.text_input("제목 (한글)")
                     cat = st.selectbox("카테고리", ["Workflow", "Prompt", "Data", "Tool"])
-                    files = st.file_uploader("파일 업로드", accept_multiple_files=True)
+                    files = st.file_uploader("파일 업로드 (코드 내용을 분석합니다)", accept_multiple_files=True)
                     hint = st.text_area("AI 힌트")
                     if st.form_submit_button("등록"):
                         if title and files:
-                            with st.spinner("AI가 내용을 읽고 보고서를 작성 중... (잠시만 기다려주세요)"):
+                            with st.spinner("AI가 파일 내용을 읽고 분석 중입니다..."):
                                 content_summary = ""
                                 for f in files:
                                     # 텍스트 파일만 읽기
@@ -398,38 +381,22 @@ def main():
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
                                 folder_name = "".join(x for x in title if x.isalnum()) + "_" + os.urandom(4).hex()
                                 upload_to_github(folder_name, files, meta)
-                            
                             st.balloons()
-                            st.success("등록 완료! 목록을 갱신합니다.")
-                            # 🚨 등록 직후 강제 캐시 삭제 및 리런 (사용자가 바로 확인 가능하도록)
-                            st.cache_data.clear()
-                            if 'resources' in st.session_state: del st.session_state['resources']
-                            st.rerun()
+                            st.success("등록 완료!")
+                            del st.session_state['resources']
             with t2:
-                if st.button("목록 새로고침"): 
-                    st.cache_data.clear()
-                    st.session_state['resources'] = load_resources_from_github()
-                    st.rerun()
-                
-                # 데이터 로드
-                if 'resources' not in st.session_state:
-                    st.session_state['resources'] = load_resources_from_github()
-                
+                if st.button("목록 새로고침"): st.session_state['resources'] = load_resources_from_github()
                 res_list = st.session_state.get('resources', [])
                 if res_list:
+                    # 🛠️ 드롭박스 수정 완료됨
                     target = st.selectbox("삭제할 리소스", [r['title'] for r in res_list])
                     if st.button("영구 삭제", type="primary"):
-                        tgt = next((r for r in res_list if r['title'] == target), None)
-                        if tgt:
-                            with st.spinner("삭제 처리 중..."):
-                                delete_from_github(tgt['path'])
-                            st.success("삭제되었습니다. 화면을 갱신합니다.")
-                            # 🚨 삭제 직후 강제 갱신
-                            st.cache_data.clear()
-                            del st.session_state['resources']
-                            st.rerun()
-                        else:
-                            st.warning("이미 삭제된 리소스입니다.")
+                        tgt = next(r for r in res_list if r['title'] == target)
+                        with st.spinner("삭제 중..."):
+                            delete_from_github(tgt['path'])
+                        st.success("삭제되었습니다.")
+                        del st.session_state['resources']
+                        st.rerun()
 
 if __name__ == "__main__":
     main()
