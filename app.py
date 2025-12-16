@@ -5,12 +5,12 @@ import io
 import zipfile
 import re
 import time
-# 📌 GithubException과 UnknownObjectException 모두 import해서 예외 처리를 철벽 방어합니다.
+# 📌 Github 관련 모듈
 from github import Github, GithubException, UnknownObjectException
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.9 (안정화 패치: 업로드 로직 수정)"
+CURRENT_VERSION = "🚀 v12.0 (디버깅 모드: 오류 원인 출력 기능 추가)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -26,12 +26,10 @@ UPLOAD_DIR = "resources"
 
 st.set_page_config(page_title="Red Drive", layout="wide", page_icon="🔴", initial_sidebar_state="expanded")
 
-# --- 2. CSS 디자인 (아이콘 보호 + 드롭박스 시인성 + 다크모드) ---
+# --- 2. CSS 디자인 ---
 st.markdown("""
 <style>
-    /* 폰트 불러오기 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-    
     html, body, p, h1, h2, h3, h4, h5, h6, span, div, label, input, textarea, button {
         font-family: Pretendard, sans-serif;
     }
@@ -43,110 +41,23 @@ st.markdown("""
         background-color: #161B22;
         border-right: 1px solid #30363D;
     }
-    
-    div[role="radiogroup"] { gap: 8px; display: flex; flex-direction: column; }
     div[role="radiogroup"] label {
-        background-color: transparent;
-        border: 1px solid transparent;
-        border-radius: 6px;
-        padding: 12px 16px;
-        margin: 0 !important;
-        transition: all 0.2s ease;
-        color: #8b949e !important;
-        font-weight: 600;
-        display: flex; align-items: center;
+        background-color: transparent; border: 1px solid transparent; border-radius: 6px;
+        padding: 12px 16px; margin: 0 !important; transition: all 0.2s ease;
+        color: #8b949e !important; font-weight: 600;
     }
-    div[role="radiogroup"] label:hover {
-        background-color: #21262D;
-        color: white !important;
-    }
+    div[role="radiogroup"] label:hover { background-color: #21262D; color: white !important; }
     div[role="radiogroup"] label[data-checked="true"] {
-        background-color: #E63946 !important;
-        color: white !important;
-        box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);
-        border: none;
+        background-color: #E63946 !important; color: white !important;
+        box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3); border: none;
     }
-    div[role="radiogroup"] label > div:first-child { display: none; }
-
-    div[data-baseweb="select"] > div {
-        background-color: #262730 !important;
-        border-color: #4A4A4A !important;
-        color: white !important;
-    }
-    div[data-baseweb="popover"], div[data-baseweb="menu"] {
-        background-color: #1F242C !important;
-        border: 1px solid #444 !important;
-    }
-    div[data-baseweb="popover"] li, div[data-baseweb="menu"] li {
-        background-color: #1F242C !important;
-        color: white !important;
-    }
-    div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
-        background-color: #E63946 !important;
-        color: white !important;
-    }
-    div[data-baseweb="popover"] li[aria-selected="true"], div[data-baseweb="menu"] li[aria-selected="true"] {
-        background-color: #E63946 !important;
-        color: white !important;
-        font-weight: bold;
-    }
-    div[data-baseweb="select"] span, div[data-baseweb="menu"] span {
-        color: white !important;
-    }
-    div[data-baseweb="select"] svg {
-        fill: white !important;
-    }
-
     .resource-card {
-        background-color: #1F242C;
-        border: 1px solid #30363D;
-        border-radius: 12px;
-        padding: 20px;
-        height: 100%;
-        display: flex; flex-direction: column; justify-content: space-between;
-        transition: transform 0.2s;
+        background-color: #1F242C; border: 1px solid #30363D; border-radius: 12px;
+        padding: 20px; height: 100%; display: flex; flex-direction: column; justify-content: space-between;
         margin-bottom: 15px;
     }
-    .resource-card:hover {
-        border-color: #E63946;
-        transform: translateY(-3px);
-    }
-    .resource-title {
-        color: white; font-size: 1.2rem; font-weight: 700; margin: 10px 0 5px 0;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .resource-preview {
-        color: #B0B0B0; font-size: 0.9rem; line-height: 1.5;
-        height: 4.5em; overflow: hidden;
-        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-        margin-bottom: 15px;
-    }
-
-    .streamlit-expanderHeader {
-        background-color: #262730 !important;
-        color: white !important;
-        border: 1px solid #4A4A4A;
-        border-radius: 8px;
-    }
-    .streamlit-expanderContent {
-        background-color: #161B22;
-        border: 1px solid #4A4A4A;
-        border-top: none;
-        padding: 20px;
-        color: #E0E0E0;
-    }
-
-    .stTextInput input, .stTextArea textarea {
-        background-color: #0E1117 !important; 
-        color: white !important; 
-        border: 1px solid #30363D !important;
-    }
-    
-    div[data-testid="stMetric"] {
-        background-color: #161B22; padding: 15px; border-radius: 10px; border: 1px solid #30363D;
-    }
-    div[data-testid="stMetricLabel"] { color: #8b949e; }
-    div[data-testid="stMetricValue"] { color: #E63946; }
+    .resource-title { color: white; font-size: 1.2rem; font-weight: 700; margin: 10px 0 5px 0; }
+    .resource-preview { color: #B0B0B0; font-size: 0.9rem; margin-bottom: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -179,58 +90,74 @@ def load_resources_from_github():
     except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
-# 📌 [수정됨] 안정적인 업로드 로직 (Check First -> Create/Update)
-# 기존의 '무조건 생성 시도' 방식에서 '파일 존재 여부 확인 후 분기' 방식으로 변경하여 오류를 방지합니다.
+# 📌 [핵심 수정] 오류가 나면 '왜' 났는지 알려주는 함수
 def safe_create_or_update(repo, file_path, message, content):
     try:
-        # 1. 파일이 존재하는지 먼저 확인 (Get)
+        # 1. 파일 확인
         existing_file = repo.get_contents(file_path)
-        # 2. 존재한다면 업데이트 (Update) - sha값이 필요함
+        # 2. 있으면 업데이트
         repo.update_file(file_path, message, content, existing_file.sha)
     except UnknownObjectException:
-        # 3. 존재하지 않는다면(404) 새로 생성 (Create)
-        repo.create_file(file_path, message, content)
+        # 3. 없으면 생성 (여기서 오류가 많이 남)
+        try:
+            repo.create_file(file_path, message, content)
+        except GithubException as e:
+            # 🚨 생성 실패 시 상세 원인 분석
+            if e.status == 403:
+                st.error(f"❌ 권한 오류 (403): 토큰에 'repo' 권한이 없습니다. GitHub 설정에서 체크해주세요.")
+            elif e.status == 404:
+                st.error(f"❌ 경로 오류 (404): 저장소 이름을 찾을 수 없거나 권한이 없습니다.")
+            else:
+                st.error(f"❌ GitHub 오류 ({e.status}): {e.data}")
+            # 실행 중단 (더 이상 진행하지 않음)
+            st.stop()
     except GithubException as e:
-        # 4. 그 외 에러 처리 (권한 문제 등)
-        st.error(f"GitHub 오류 발생 ({file_path}): {e}")
-        raise e
+        st.error(f"❌ 알 수 없는 GitHub 오류: {str(e)}")
+        st.stop()
 
 def upload_to_github(folder_name, files, meta_data):
     repo = get_repo()
     base_path = f"{UPLOAD_DIR}/{folder_name}"
     
+    # 진행 상황바
+    progress_text = "파일 업로드 시작..."
+    my_bar = st.progress(0, text=progress_text)
+    
+    total_steps = len(files) + 1
+    
     # 1. 개별 파일 업로드
-    for file in files:
-        # 파일명 그대로 사용
+    for idx, file in enumerate(files):
         safe_filename = file.name 
         file_path = f"{base_path}/{safe_filename}"
-        
-        # 파일 내용을 바이트로 읽기
         content_bytes = file.getvalue()
         
-        # 안전한 업로드 함수 호출
+        # 업로드 수행
         safe_create_or_update(repo, file_path, f"Add {safe_filename}", content_bytes)
+        
+        # 진행률 업데이트
+        percent = int(((idx + 1) / total_steps) * 100)
+        my_bar.progress(percent, text=f"Uploading: {safe_filename}")
             
-    # 2. 메타데이터(info.json) 업로드
+    # 2. 메타데이터 업로드
     json_path = f"{base_path}/info.json"
     json_content = json.dumps(meta_data, ensure_ascii=False, indent=4)
-    
     safe_create_or_update(repo, json_path, "Add info", json_content)
+    
+    my_bar.progress(100, text="업로드 완료!")
+    time.sleep(1)
+    my_bar.empty()
 
 def delete_from_github(folder_path):
     repo = get_repo()
     contents = repo.get_contents(folder_path)
     for c in contents: repo.delete_file(c.path, "Del", c.sha)
 
-# ZIP 다운로드 시 폴더별로 정리하는 함수
 def download_zip(selected_objs):
     repo = get_repo()
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in selected_objs:
-            # ZIP 내부 폴더명으로 사용할 제목 (특수문자 제거)
             safe_folder_name = re.sub(r'[\\/:*?"<>|]', '_', res.get('title', 'Untitled'))
-            
             contents = repo.get_contents(res['path'])
             for c in contents:
                 if c.name != "info.json":
@@ -238,43 +165,15 @@ def download_zip(selected_objs):
                     zf.writestr(zip_path, c.decoded_content)
     return zip_buffer.getvalue()
 
-# --- 4. AI 설명 생성 ---
 def generate_desc(file_contents_str, hint):
     if not OPENAI_API_KEY: return "API 키가 설정되지 않았습니다."
     client = OpenAI(api_key=OPENAI_API_KEY)
     
     prompt = f"""
-    당신은 기업의 수석 IT 컨설턴트입니다. 
-    사용자가 업로드한 '파일의 실제 내용'을 분석하여 임원 및 실무자 보고용 문서를 작성하세요.
-    
-    [분석할 파일 내용]:
-    {file_contents_str}
-    
-    [작성자 힌트]: 
-    {hint}
-    
-    **작성 가이드:**
-    1. 서론(안녕하세요 등) 절대 금지. 바로 본론 진입.
-    2. 전문적인 비즈니스 용어 사용.
-    3. 화살표(->)를 사용하여 데이터 흐름을 명확히 표현.
-    4. 언어: 한국어 (Korean)
-    
-    **출력 포맷 (Markdown):**
-    
-    ### 📋 시스템 요약 (Executive Summary)
-    (이 도구가 무엇인지, 어떤 비즈니스 가치를 주는지 2줄 요약)
-
-    ### ⚙️ 아키텍처 및 데이터 흐름
-    * **Flow**: `[입력] -> [처리] -> [출력]` (실제 로직 반영)
-    * **핵심 구성 요소**:
-        * **파일명**: (해당 파일의 구체적 역할과 로직 설명)
-
-    ### 🛠️ 기술적 메커니즘 (Deep Dive)
-    * **트리거**: (언제 실행되는지)
-    * **로직**: (데이터가 어떻게 가공되는지 코드 레벨 분석)
-
-    ### ✨ 비즈니스 임팩트
-    (도입 시 정량적/정성적 기대 효과)
+    당신은 IT 컨설턴트입니다. 파일 내용과 힌트를 바탕으로 보고서를 작성하세요.
+    [파일 내용]: {file_contents_str}
+    [힌트]: {hint}
+    작성 언어: 한국어. 전문 용어 사용. 마크다운 형식.
     """
     try:
         res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user","content":prompt}])
@@ -297,25 +196,18 @@ def main():
                 st.session_state['resources'] = load_resources_from_github()
         
         resources = st.session_state['resources']
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("총 리소스", f"{len(resources)}개")
-        total_files = sum([len(r.get('files', [])) for r in resources])
-        m2.metric("전체 파일", f"{total_files}개")
-        m3.metric("상태", "Active 🟢")
-        
+        st.metric("총 리소스", f"{len(resources)}개")
         st.divider()
 
         c1, c2 = st.columns([5, 1])
-        search = c1.text_input("검색", placeholder="키워드 입력...", label_visibility="collapsed")
+        search = c1.text_input("검색", placeholder="키워드...", label_visibility="collapsed")
         if c2.button("🔄 새로고침"):
-            if 'resources' in st.session_state:
-                del st.session_state['resources']
+            if 'resources' in st.session_state: del st.session_state['resources']
             st.rerun()
         if search: resources = [r for r in resources if search.lower() in str(r).lower()]
-
-        if 'selected' not in st.session_state: st.session_state['selected'] = []
         
+        if 'selected' not in st.session_state: st.session_state['selected'] = []
+
         if not resources:
             st.info("등록된 리소스가 없습니다.")
         else:
@@ -323,44 +215,29 @@ def main():
             for idx, res in enumerate(resources):
                 with cols[idx % 2]:
                     with st.container():
-                        desc_raw = res.get('description', '')
-                        desc_clean = clean_text_for_preview(desc_raw)
-
                         st.markdown(f"""
                         <div class="resource-card">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="background:#E63946; color:white; padding:4px 10px; border-radius:8px; font-size:0.8em; font-weight:bold;">{res.get('category')}</span>
-                                <span style="color:#888; font-size:0.8em;">파일 {len(res.get('files', []))}개</span>
-                            </div>
-                            <div class="resource-title" title="{res.get('title')}">{res.get('title')}</div>
-                            <div class="resource-preview">{desc_clean}...</div>
+                            <div style="font-weight:bold; color:#E63946;">{res.get('category')}</div>
+                            <div class="resource-title">{res.get('title')}</div>
+                            <div class="resource-preview">{clean_text_for_preview(res.get('description', ''))}...</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                         c_chk, c_exp = st.columns([1, 2])
                         is_sel = res['id'] in st.session_state['selected']
                         if c_chk.checkbox("선택", key=res['id'], value=is_sel):
-                            if res['id'] not in st.session_state['selected']:
-                                st.session_state['selected'].append(res['id'])
+                            if res['id'] not in st.session_state['selected']: st.session_state['selected'].append(res['id'])
                         else:
-                            if res['id'] in st.session_state['selected']:
-                                st.session_state['selected'].remove(res['id'])
-                        
-                        with c_exp.expander("상세 내용 열기"):
-                            st.markdown(desc_raw)
-                            st.caption("포함된 파일:")
-                            for f in res.get('files', []): st.code(f, language="bash")
+                            if res['id'] in st.session_state['selected']: st.session_state['selected'].remove(res['id'])
+                        with c_exp.expander("상세 보기"):
+                            st.markdown(res.get('description', ''))
 
         if st.session_state['selected']:
             st.markdown("---")
-            c_info, c_btn = st.columns([8, 2])
-            c_info.success(f"{len(st.session_state['selected'])}개 선택됨")
-            if c_btn.button("📦 다운로드 (ZIP)", type="primary", use_container_width=True):
-                st.snow() # 눈내림 효과
-                target_objs = [r for r in resources if r['id'] in st.session_state['selected']]
-                with st.spinner("압축 중... (폴더별 정리 중)"):
-                    zip_data = download_zip(target_objs)
-                    st.download_button("저장하기", zip_data, "RedDrive.zip", "application/zip", use_container_width=True)
+            if st.button("📦 다운로드 (ZIP)", type="primary", use_container_width=True):
+                target = [r for r in resources if r['id'] in st.session_state['selected']]
+                with st.spinner("압축 중..."):
+                    st.download_button("파일 저장", download_zip(target), "RedDrive.zip", "application/zip")
 
     elif "관리자" in menu:
         st.title("⚙️ 관리자 모드")
@@ -375,50 +252,36 @@ def main():
                     hint = st.text_area("AI 힌트")
                     if st.form_submit_button("등록"):
                         if title and files:
-                            with st.spinner("AI가 분석 및 업로드 중입니다..."):
+                            with st.spinner("AI 분석 및 업로드 중..."):
                                 content_summary = ""
                                 for f in files:
-                                    if f.name.endswith(('.py', '.js', '.json', '.txt', '.md', '.html', '.css', '.gs', '.csv')):
-                                        try:
-                                            file_text = f.getvalue().decode("utf-8")
-                                            content_summary += f"\n--- [파일명: {f.name}] ---\n{file_text[:3000]}\n"
-                                        except:
-                                            content_summary += f"\n--- [파일명: {f.name}] (바이너리) ---\n"
-                                    else:
-                                        content_summary += f"\n--- [파일명: {f.name}] (기타) ---\n"
-
+                                    try: content_summary += f.getvalue().decode("utf-8")[:1000]
+                                    except: content_summary += "Binary File"
                                 desc = generate_desc(content_summary, hint)
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
                                 
-                                # 한글 폴더명 유지
                                 safe_title = "".join(x for x in title if x.isalnum()) 
                                 folder_name = f"{safe_title}_{os.urandom(4).hex()}"
                                 
                                 upload_to_github(folder_name, files, meta)
                             
-                            st.balloons() # 풍선 효과
-                            st.success("등록 완료! (잠시 후 새로고침 됩니다)")
-                            time.sleep(2.0)
-                            
-                            if 'resources' in st.session_state:
-                                del st.session_state['resources']
+                            st.balloons()
+                            st.success("등록 완료! (새로고침 됩니다)")
+                            time.sleep(2)
+                            del st.session_state['resources']
                             st.rerun()
 
             with t2:
                 if st.button("목록 새로고침"): 
                     st.session_state['resources'] = load_resources_from_github()
-                
                 res_list = st.session_state.get('resources', [])
                 if res_list:
-                    target = st.selectbox("삭제할 리소스", [r['title'] for r in res_list])
+                    target = st.selectbox("삭제 대상", [r['title'] for r in res_list])
                     if st.button("영구 삭제", type="primary"):
                         tgt = next(r for r in res_list if r['title'] == target)
-                        with st.spinner("삭제 중..."):
-                            delete_from_github(tgt['path'])
-                        st.success("삭제되었습니다.")
-                        
-                        if 'resources' in st.session_state:
-                            del st.session_state['resources']
+                        with st.spinner("삭제 중..."): delete_from_github(tgt['path'])
+                        st.success("삭제됨")
+                        del st.session_state['resources']
                         st.rerun()
 
 if __name__ == "__main__":
