@@ -8,7 +8,7 @@ from github import Github
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.0 (아이콘/드롭박스/폰트 완벽 해결)"
+CURRENT_VERSION = "🚀 v11.1 (안정화 패치: 세션 상태 관리 수정)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -298,7 +298,8 @@ def main():
         c1, c2 = st.columns([5, 1])
         search = c1.text_input("검색", placeholder="키워드 입력...", label_visibility="collapsed")
         if c2.button("🔄 새로고침"):
-            del st.session_state['resources']
+            if 'resources' in st.session_state:
+                del st.session_state['resources']
             st.rerun()
         if search: resources = [r for r in resources if search.lower() in str(r).lower()]
 
@@ -383,9 +384,15 @@ def main():
                                 upload_to_github(folder_name, files, meta)
                             st.balloons()
                             st.success("등록 완료!")
-                            del st.session_state['resources']
+                            
+                            # [수정] 안전하게 상태 초기화
+                            if 'resources' in st.session_state:
+                                del st.session_state['resources']
+                            st.rerun() # 새로고침 추가
             with t2:
-                if st.button("목록 새로고침"): st.session_state['resources'] = load_resources_from_github()
+                if st.button("목록 새로고침"): 
+                    st.session_state['resources'] = load_resources_from_github()
+                
                 res_list = st.session_state.get('resources', [])
                 if res_list:
                     # 🛠️ 드롭박스 수정 완료됨
@@ -395,7 +402,10 @@ def main():
                         with st.spinner("삭제 중..."):
                             delete_from_github(tgt['path'])
                         st.success("삭제되었습니다.")
-                        del st.session_state['resources']
+                        
+                        # [수정] 안전하게 상태 초기화
+                        if 'resources' in st.session_state:
+                            del st.session_state['resources']
                         st.rerun()
 
 if __name__ == "__main__":
