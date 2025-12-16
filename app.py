@@ -10,7 +10,7 @@ from github import Github, GithubException, UnknownObjectException
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.8 (최종 완결: 확인 절차 제거 & 무조건 생성 모드)"
+CURRENT_VERSION = "🚀 v11.9 (안정화 패치: 업로드 로직 수정)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -179,25 +179,21 @@ def load_resources_from_github():
     except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
-# 📌 [핵심 수정] 무조건 생성 전략 (Create First, Ask Later)
-# 파일을 읽으려다가(get_contents) 파일이 없으면 에러가 터지니, 아예 읽지 않고 생성부터 합니다.
+# 📌 [수정됨] 안정적인 업로드 로직 (Check First -> Create/Update)
+# 기존의 '무조건 생성 시도' 방식에서 '파일 존재 여부 확인 후 분기' 방식으로 변경하여 오류를 방지합니다.
 def safe_create_or_update(repo, file_path, message, content):
     try:
-        # 1. 일단 생성을 시도합니다. (가장 안전함)
+        # 1. 파일이 존재하는지 먼저 확인 (Get)
+        existing_file = repo.get_contents(file_path)
+        # 2. 존재한다면 업데이트 (Update) - sha값이 필요함
+        repo.update_file(file_path, message, content, existing_file.sha)
+    except UnknownObjectException:
+        # 3. 존재하지 않는다면(404) 새로 생성 (Create)
         repo.create_file(file_path, message, content)
     except GithubException as e:
-        # 2. 만약 에러가 났는데, 그 이유가 "이미 있어서(422)"라면?
-        if e.status == 422 or e.status == 409:
-            try:
-                # 3. 그제서야 "아 있구나" 하고 정보를 가져와서 업데이트합니다.
-                existing_file = repo.get_contents(file_path)
-                repo.update_file(file_path, message, content, existing_file.sha)
-            except UnknownObjectException:
-                # 정말 희박한 확률로 여기로 올 수 있으나 안전장치로 둡니다.
-                repo.create_file(file_path, message, content)
-        else:
-            # 다른 문제라면 에러를 띄웁니다.
-            raise e
+        # 4. 그 외 에러 처리 (권한 문제 등)
+        st.error(f"GitHub 오류 발생 ({file_path}): {e}")
+        raise e
 
 def upload_to_github(folder_name, files, meta_data):
     repo = get_repo()
