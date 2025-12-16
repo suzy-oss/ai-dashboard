@@ -8,9 +8,9 @@ from github import Github
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🔥 v10.0 (아이콘/드롭박스/AI지능 완벽수리)"
+CURRENT_VERSION = "🚀 v11.0 (아이콘/드롭박스/폰트 완벽 해결)"
 
-# --- 1. 설정 및 시크릿 로드 ---
+# --- 1. 시크릿 로드 ---
 try:
     GITHUB_TOKEN = st.secrets["general"]["github_token"]
     REPO_NAME = st.secrets["general"]["repo_name"]
@@ -24,28 +24,25 @@ UPLOAD_DIR = "resources"
 
 st.set_page_config(page_title="Red Drive", layout="wide", page_icon="🔴", initial_sidebar_state="expanded")
 
-# --- 2. CSS 디자인 (아이콘 보호 + 드롭박스 가시성 확보) ---
+# --- 2. CSS 디자인 (아이콘 보호 + 드롭박스 시인성 + 다크모드) ---
 st.markdown("""
 <style>
-    /* 1. 폰트 적용: 아이콘(Material Icons)은 건드리지 않도록 타겟팅 제한 */
+    /* 폰트 불러오기 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     
-    /* 전체가 아니라 텍스트 요소에만 폰트 적용 */
-    body, p, h1, h2, h3, h4, h5, h6, span, div, button, input, textarea, label, li, a {
-        font-family: Pretendard, sans-serif !important;
+    /* 🚨 [핵심 수정] 모든 요소(*)가 아니라, 텍스트 요소에만 폰트를 적용하여 아이콘 깨짐 방지 */
+    html, body, p, h1, h2, h3, h4, h5, h6, span, div, label, input, textarea, button {
+        font-family: Pretendard, sans-serif;
     }
     
-    /* 아이콘 폰트 보호 (이게 겹침 문제의 핵심 해결책) */
-    .material-icons, .material-symbols-rounded, svg, i {
-        font-family: 'Material Icons', sans-serif !important; 
-        font-style: normal !important;
-    }
-
-    /* 🔴 전체 배경: 다크 모드 */
+    /* 🔴 전체 배경 */
     .stApp { background-color: #0E1117; color: #FAFAFA; }
 
-    /* 불필요 UI 숨김 */
-    .stDeployButton, header, div[data-testid="stStatusWidget"], div[data-testid="stTooltipHoverTarget"] { display: none !important; }
+    /* 불필요한 UI 숨김 */
+    .stDeployButton, header, div[data-testid="stStatusWidget"] { display: none !important; }
+    
+    /* 🚨 툴팁/단축키 도움말 텍스트가 겹치지 않도록 숨김 */
+    div[data-testid="stTooltipHoverTarget"] { display: none !important; }
 
     /* 📂 사이드바 스타일 */
     section[data-testid="stSidebar"] {
@@ -53,13 +50,13 @@ st.markdown("""
         border-right: 1px solid #30363D;
     }
     
-    /* 🚨 메뉴 버튼 스타일 */
+    /* 🔘 메뉴 버튼 스타일 (반응형) */
     div[role="radiogroup"] { gap: 8px; display: flex; flex-direction: column; }
     div[role="radiogroup"] label {
         background-color: transparent;
         border: 1px solid transparent;
         border-radius: 6px;
-        padding: 10px 15px;
+        padding: 12px 16px;
         margin: 0 !important;
         transition: all 0.2s ease;
         color: #8b949e !important;
@@ -74,37 +71,39 @@ st.markdown("""
         background-color: #E63946 !important;
         color: white !important;
         box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);
+        border: none;
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
 
-    /* 🛠️ [긴급 수리] 드롭박스(Selectbox) 글씨 보이게 수정 */
-    /* 선택된 값 표시 영역 배경을 짙은 회색으로 고정 */
+    /* 🛠️ [드롭박스 해결] Selectbox 디자인 강제 지정 */
+    /* 1. 닫혀있을 때 보이는 박스 */
     div[data-baseweb="select"] > div {
         background-color: #262730 !important;
-        color: #FAFAFA !important;
-        border: 1px solid #4A4A4A !important;
+        color: white !important;
+        border-color: #4A4A4A !important;
     }
-    /* 텍스트 컨테이너 강제 흰색 */
+    /* 2. 텍스트 색상 강제 흰색 */
     div[data-baseweb="select"] span {
-        color: #ffffff !important;
+        color: white !important;
     }
-    /* 드롭다운 메뉴 리스트 (팝업) */
+    /* 3. 화살표 아이콘 색상 */
+    div[data-baseweb="select"] svg {
+        fill: white !important;
+    }
+    /* 4. 펼쳐진 메뉴 리스트 (팝업) */
     div[data-baseweb="popover"], div[data-baseweb="menu"], ul {
         background-color: #1F242C !important;
     }
-    /* 각 옵션 항목 */
+    /* 5. 옵션 항목들 */
     li[role="option"] {
-        color: #FAFAFA !important;
-        background-color: #1F242C !important;
+        color: white !important;
+        background-color: transparent !important;
     }
-    /* 마우스 호버 시 */
+    /* 6. 마우스 올렸을 때 / 선택된 항목 */
     li[role="option"]:hover, li[role="option"][aria-selected="true"] {
         background-color: #E63946 !important;
         color: white !important;
-    }
-    /* SVG 아이콘 색상 (화살표 등) */
-    div[data-baseweb="select"] svg {
-        fill: #FAFAFA !important;
+        font-weight: bold;
     }
 
     /* 📦 리소스 카드 */
@@ -128,24 +127,18 @@ st.markdown("""
     }
     .resource-preview {
         color: #B0B0B0; font-size: 0.9rem; line-height: 1.5;
-        height: 4.5em; /* 3줄 높이 */
-        overflow: hidden;
+        height: 4.5em; overflow: hidden;
         display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
         margin-bottom: 15px;
-        background-color: #161B22; /* 미리보기 배경 살짝 어둡게 */
-        padding: 8px;
-        border-radius: 6px;
     }
 
-    /* 상세 보기 (Expander) 스타일 - 아이콘 겹침 방지 */
+    /* Expander 스타일 */
     .streamlit-expanderHeader {
         background-color: #262730 !important;
         color: white !important;
         border: 1px solid #4A4A4A;
         border-radius: 8px;
-        font-size: 0.9rem;
     }
-    .streamlit-expanderHeader p { font-weight: 600; }
     .streamlit-expanderContent {
         background-color: #161B22;
         border: 1px solid #4A4A4A;
@@ -172,7 +165,6 @@ st.markdown("""
 
 # --- 3. 헬퍼 함수 ---
 def clean_text_for_preview(text):
-    """마크다운 기호 제거하고 순수 텍스트만 추출"""
     if not text: return "내용 없음"
     clean = re.sub(r'[#*`\->]', '', text)
     clean = " ".join(clean.split())
@@ -232,14 +224,14 @@ def download_zip(selected_objs):
                 if c.name != "info.json": zf.writestr(c.name, c.decoded_content)
     return zip_buffer.getvalue()
 
-# --- 4. AI 설명 생성 (진짜 내용 읽기 로직 추가) ---
+# --- 4. AI 설명 생성 (파일 내용 읽기 포함) ---
 def generate_desc(file_contents_str, hint):
     if not OPENAI_API_KEY: return "API 키가 설정되지 않았습니다."
     client = OpenAI(api_key=OPENAI_API_KEY)
     
     prompt = f"""
     당신은 기업의 수석 IT 컨설턴트입니다. 
-    사용자가 업로드한 '파일의 실제 내용(코드/텍스트)'을 분석하여 임원 보고용 상세 문서를 작성하세요.
+    사용자가 업로드한 '파일의 실제 내용'을 분석하여 임원 및 실무자 보고용 문서를 작성하세요.
     
     [분석할 파일 내용]:
     {file_contents_str}
@@ -247,15 +239,16 @@ def generate_desc(file_contents_str, hint):
     [작성자 힌트]: 
     {hint}
     
-    **필수 지침:**
-    1. 서론(안녕하세요 등) 절대 금지.
-    2. 전문적인 비즈니스 및 기술 용어 사용.
+    **작성 가이드:**
+    1. 서론(안녕하세요 등) 절대 금지. 바로 본론 진입.
+    2. 전문적인 비즈니스 용어 사용.
     3. 화살표(->)를 사용하여 데이터 흐름을 명확히 표현.
+    4. 언어: 한국어 (Korean)
     
     **출력 포맷 (Markdown):**
     
     ### 📋 시스템 요약 (Executive Summary)
-    (이 도구가 무엇인지, 비즈니스 가치 2줄 요약)
+    (이 도구가 무엇인지, 어떤 비즈니스 가치를 주는지 2줄 요약)
 
     ### ⚙️ 아키텍처 및 데이터 흐름
     * **Flow**: `[입력] -> [처리] -> [출력]` (실제 로직 반영)
@@ -301,7 +294,7 @@ def main():
         
         st.divider()
 
-        # 검색/새로고침
+        # 검색
         c1, c2 = st.columns([5, 1])
         search = c1.text_input("검색", placeholder="키워드 입력...", label_visibility="collapsed")
         if c2.button("🔄 새로고침"):
@@ -343,7 +336,6 @@ def main():
                             if res['id'] in st.session_state['selected']:
                                 st.session_state['selected'].remove(res['id'])
                         
-                        # 상세보기 (아이콘 겹침 해결됨)
                         with c_exp.expander("상세 내용 열기"):
                             st.markdown(desc_raw)
                             st.caption("포함된 파일:")
@@ -368,25 +360,22 @@ def main():
                 with st.form("upl"):
                     title = st.text_input("제목 (한글)")
                     cat = st.selectbox("카테고리", ["Workflow", "Prompt", "Data", "Tool"])
-                    files = st.file_uploader("파일 업로드 (코드/텍스트 내용을 분석합니다)", accept_multiple_files=True)
+                    files = st.file_uploader("파일 업로드 (코드 내용을 분석합니다)", accept_multiple_files=True)
                     hint = st.text_area("AI 힌트")
                     if st.form_submit_button("등록"):
                         if title and files:
                             with st.spinner("AI가 파일 내용을 읽고 분석 중입니다..."):
-                                # 🔥 여기가 핵심: 파일 내용을 실제로 읽어서 전달
                                 content_summary = ""
                                 for f in files:
-                                    # 텍스트 파일만 읽기 시도
-                                    if f.name.endswith(('.py', '.js', '.json', '.txt', '.md', '.html', '.css', '.gs')):
+                                    # 텍스트 파일만 읽기
+                                    if f.name.endswith(('.py', '.js', '.json', '.txt', '.md', '.html', '.css', '.gs', '.csv')):
                                         try:
-                                            # 파일 내용을 디코딩해서 문자열로 변환
                                             file_text = f.getvalue().decode("utf-8")
-                                            # 너무 길면 앞 3000자만 (토큰 절약)
                                             content_summary += f"\n--- [파일명: {f.name}] ---\n{file_text[:3000]}\n"
                                         except:
-                                            content_summary += f"\n--- [파일명: {f.name}] (읽을 수 없음/바이너리) ---\n"
+                                            content_summary += f"\n--- [파일명: {f.name}] (바이너리) ---\n"
                                     else:
-                                        content_summary += f"\n--- [파일명: {f.name}] (기타 파일) ---\n"
+                                        content_summary += f"\n--- [파일명: {f.name}] (기타) ---\n"
 
                                 desc = generate_desc(content_summary, hint)
                                 meta = {"title":title, "category":cat, "description":desc, "files":[f.name for f in files]}
@@ -399,7 +388,7 @@ def main():
                 if st.button("목록 새로고침"): st.session_state['resources'] = load_resources_from_github()
                 res_list = st.session_state.get('resources', [])
                 if res_list:
-                    # 드롭박스 스타일 수정 완료
+                    # 🛠️ 드롭박스 수정 완료됨
                     target = st.selectbox("삭제할 리소스", [r['title'] for r in res_list])
                     if st.button("영구 삭제", type="primary"):
                         tgt = next(r for r in res_list if r['title'] == target)
