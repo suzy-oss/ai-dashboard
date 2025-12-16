@@ -3,11 +3,12 @@ import os
 import json
 import io
 import zipfile
+import re  # 텍스트 정제용 정규표현식
 from github import Github
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🔥 v8.0 (드롭박스/UI 완벽 수정)"
+CURRENT_VERSION = "🔥 v9.0 (아이콘 겹침 해결 + AI 보고서 고도화)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -23,13 +24,21 @@ UPLOAD_DIR = "resources"
 
 st.set_page_config(page_title="Red Drive", layout="wide", page_icon="🔴", initial_sidebar_state="expanded")
 
-# --- 2. CSS 디자인 (드롭박스 시인성 확보 + 카드 UI 개선) ---
+# --- 2. CSS 디자인 (폰트 충돌 해결 + UI 가독성) ---
 st.markdown("""
 <style>
-    /* 폰트 적용 */
+    /* 폰트 적용: 아이콘 깨짐 방지를 위해 * 대신 구체적인 태그에만 적용 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-    * { font-family: Pretendard, sans-serif !important; }
     
+    body, p, h1, h2, h3, h4, h5, h6, span, div, button, input, textarea, label {
+        font-family: Pretendard, sans-serif !important;
+    }
+    
+    /* 아이콘 폰트는 건드리지 않도록 예외 처리 (이게 핵심!) */
+    .material-icons, .material-symbols-rounded, svg, i {
+        font-family: 'Material Icons', sans-serif !important; 
+    }
+
     /* 🔴 전체 배경: 다크 모드 */
     .stApp { background-color: #0E1117; color: #FAFAFA; }
 
@@ -66,30 +75,22 @@ st.markdown("""
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
 
-    /* 🛠️ [핵심 수정] 드롭박스(Selectbox) 디자인 강제 지정 */
-    /* 선택된 값 표시 영역 */
+    /* 🛠️ 드롭박스(Selectbox) 디자인 강제 지정 */
     div[data-baseweb="select"] > div {
         background-color: #262730 !important;
         color: #FAFAFA !important;
         border-color: #4A4A4A !important;
     }
-    /* 드롭다운 메뉴 리스트 (팝업) */
     div[data-baseweb="popover"], div[data-baseweb="menu"], ul {
         background-color: #262730 !important;
     }
-    /* 각 옵션 항목 */
-    li[role="option"] {
-        color: #FAFAFA !important;
-    }
-    /* 마우스 호버 시 */
+    li[role="option"] { color: #FAFAFA !important; }
     li[role="option"]:hover, li[role="option"][aria-selected="true"] {
         background-color: #E63946 !important;
         color: white !important;
     }
-    /* 아이콘 색상 */
-    svg { fill: #FAFAFA !important; }
 
-    /* 📦 리소스 카드 (미리보기 + 버튼 개선) */
+    /* 📦 리소스 카드 */
     .resource-card {
         background-color: #1F242C;
         border: 1px solid #30363D;
@@ -109,14 +110,17 @@ st.markdown("""
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .resource-preview {
-        color: #A0A0A0; font-size: 0.9rem; line-height: 1.5;
-        height: 4.5em; /* 3줄 높이 고정 */
+        color: #B0B0B0; font-size: 0.9rem; line-height: 1.5;
+        height: 4.5em; /* 3줄 높이 */
         overflow: hidden;
         display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
         margin-bottom: 15px;
+        background-color: #161B22; /* 미리보기 배경 살짝 어둡게 */
+        padding: 8px;
+        border-radius: 6px;
     }
 
-    /* 상세 보기 버튼 (Expander 헤더 커스텀) */
+    /* 상세 보기 (Expander) 스타일 */
     .streamlit-expanderHeader {
         background-color: #262730 !important;
         color: white !important;
@@ -128,9 +132,13 @@ st.markdown("""
         border-color: #E63946;
         color: #E63946 !important;
     }
-    /* 아이콘 겹침 방지: 화살표 아이콘 숨김 처리 (대신 텍스트로 안내) */
-    .streamlit-expanderHeader svg { display: none !important; }
-    .streamlit-expanderHeader p::before { content: "🔽 "; }
+    .streamlit-expanderContent {
+        background-color: #161B22;
+        border: 1px solid #4A4A4A;
+        border-top: none;
+        padding: 20px;
+        color: #E0E0E0;
+    }
 
     /* 입력창 스타일 */
     .stTextInput input, .stTextArea textarea {
@@ -148,7 +156,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. GitHub 함수 ---
+# --- 3. 헬퍼 함수 ---
+def clean_text_for_preview(text):
+    """마크다운 기호 제거하고 순수 텍스트만 추출"""
+    if not text: return "내용 없음"
+    # #, *, - 같은 마크다운 기호 제거
+    clean = re.sub(r'[#*`\->]', '', text)
+    # 여러 줄을 한 줄로 합치기
+    clean = " ".join(clean.split())
+    return clean[:120] # 120자까지만 반환
+
 def get_repo():
     g = Github(GITHUB_TOKEN)
     return g.get_repo(REPO_NAME)
@@ -203,30 +220,43 @@ def download_zip(selected_objs):
                 if c.name != "info.json": zf.writestr(c.name, c.decoded_content)
     return zip_buffer.getvalue()
 
-# --- 4. AI 설명 생성 ---
+# --- 4. AI 설명 생성 (고도화 버전) ---
 def generate_desc(summary, hint):
     if not OPENAI_API_KEY: return "API 키가 설정되지 않았습니다."
     client = OpenAI(api_key=OPENAI_API_KEY)
     
+    # 🚨 요청하신 대로 아주 상세하고 구조화된 프롬프트
     prompt = f"""
-    당신은 기업의 IT 컨설턴트입니다. 아래 코드를 분석하여 임원 보고용 문서를 작성하세요.
+    당신은 수석 시스템 아키텍트이자 기술 라이터입니다.
+    업로드된 코드를 분석하여, 개발자와 기획자 모두가 이해할 수 있는 상세 기술 문서를 작성하세요.
     
-    [파일 내용]: {summary}
-    [힌트]: {hint}
+    [파일 내용 요약]: {summary}
+    [작성자 힌트]: {hint}
     
     **작성 가이드:**
-    - 한국어로 작성.
-    - 서론 없이 바로 본론 진입.
+    1. 표절 시비가 없도록 '개요', '동작 원리' 같은 흔한 단어 대신, 아래 지정된 섹션명을 사용하세요.
+    2. 화살표(->)를 사용하여 데이터 흐름을 시각화하세요.
+    3. 한국어(Korean)로 작성하세요.
     
-    **출력 포맷:**
-    ### 🛑 문제 정의 (Pain Point)
-    (구체적인 문제점 1~2문장)
+    **출력 포맷 (Markdown):**
+    
+    ### 📋 시스템 요약 (Executive Summary)
+    (이 도구가 무엇인지, 어떤 비즈니스 가치를 주는지 2~3문장으로 핵심 요약)
 
-    ### 💡 해결 방안 (Solution)
-    (자동화 원리 및 로직 설명)
+    ### ⚙️ 아키텍처 및 데이터 흐름 (Architecture & Flow)
+    (데이터가 어디서 들어와서 어떻게 처리되고 어디로 나가는지 도식화)
+    * 예: `[Google Drive] -> [Webhook] -> [Gemini API] -> [Result Table]` (실제 분석 내용 기반으로 작성)
+    * **핵심 노드 설명**:
+        * **노드명**: (해당 노드의 구체적 역할)
 
-    ### 🚀 기대 효과 (Impact)
-    (정량/정성적 효과)
+    ### 🛠️ 기술적 메커니즘 (Technical Mechanism)
+    (코드 레벨에서의 구체적인 작동 방식 서술)
+    * **트리거 조건**: (언제 실행되는지)
+    * **데이터 처리**: (어떻게 가공되는지)
+    * **출력 방식**: (결과물은 어떤 형태인지)
+
+    ### ✨ 비즈니스 임팩트 (Business Value)
+    (도입 시 기대 효과)
     """
     try:
         res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user","content":prompt}])
@@ -278,10 +308,9 @@ def main():
             for idx, res in enumerate(resources):
                 with cols[idx % 2]:
                     with st.container():
-                        # 요약 텍스트 추출 (첫 문단 또는 150자)
-                        desc_full = res.get('description', '')
-                        desc_preview = desc_full.split('\n')[0] if desc_full else "내용 없음"
-                        if len(desc_preview) > 80: desc_preview = desc_preview[:80] + "..."
+                        # 요약 텍스트 정제 (미리보기용)
+                        desc_raw = res.get('description', '')
+                        desc_clean = clean_text_for_preview(desc_raw)
 
                         st.markdown(f"""
                         <div class="resource-card">
@@ -290,11 +319,11 @@ def main():
                                 <span style="color:#888; font-size:0.8em;">파일 {len(res.get('files', []))}개</span>
                             </div>
                             <div class="resource-title" title="{res.get('title')}">{res.get('title')}</div>
-                            <div class="resource-preview">{desc_preview}</div>
+                            <div class="resource-preview">{desc_clean}...</div>
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # 버튼 영역 (체크박스와 Expander)
+                        # 버튼 영역
                         c_chk, c_exp = st.columns([1, 2])
                         is_sel = res['id'] in st.session_state['selected']
                         if c_chk.checkbox("선택", key=res['id'], value=is_sel):
@@ -304,9 +333,9 @@ def main():
                             if res['id'] in st.session_state['selected']:
                                 st.session_state['selected'].remove(res['id'])
                         
-                        # 상세 보기 (버튼처럼 보이게 CSS 적용됨)
-                        with c_exp.expander("상세 내용 보기"):
-                            st.markdown(desc_full)
+                        # 상세 보기
+                        with c_exp.expander("상세 내용 열기"):
+                            st.markdown(desc_raw)
                             st.caption("포함된 파일:")
                             for f in res.get('files', []): st.code(f, language="bash")
 
@@ -330,7 +359,7 @@ def main():
                     title = st.text_input("제목 (한글)")
                     cat = st.selectbox("카테고리", ["Workflow", "Prompt", "Data", "Tool"])
                     files = st.file_uploader("파일 업로드", accept_multiple_files=True)
-                    hint = st.text_area("AI 힌트")
+                    hint = st.text_area("AI 힌트 (핵심 기능 위주)")
                     if st.form_submit_button("등록"):
                         if title and files:
                             with st.spinner("AI 분석 중..."):
@@ -346,7 +375,6 @@ def main():
                 if st.button("목록 새로고침"): st.session_state['resources'] = load_resources_from_github()
                 res_list = st.session_state.get('resources', [])
                 if res_list:
-                    # 드롭박스 글씨 문제 해결됨
                     target = st.selectbox("삭제할 리소스", [r['title'] for r in res_list])
                     if st.button("영구 삭제", type="primary"):
                         tgt = next(r for r in res_list if r['title'] == target)
