@@ -4,12 +4,12 @@ import json
 import io
 import zipfile
 import re
-import time  # 📌 풍선 효과 대기 시간을 위해 추가
+import time
 from github import Github
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.2 (풍선 효과 복구 & 드롭다운 CSS 핫픽스)"
+CURRENT_VERSION = "🚀 v11.3 (다운로드 시 눈내림 효과 추가 ❄️)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -74,44 +74,32 @@ st.markdown("""
     }
     div[role="radiogroup"] label > div:first-child { display: none; }
 
-    /* 🛠️ [드롭박스(Selectbox) 긴급 수정] */
-    /* 1. 선택 박스 자체 스타일 */
+    /* 🛠️ [드롭박스(Selectbox) 디자인] */
     div[data-baseweb="select"] > div {
         background-color: #262730 !important;
         border-color: #4A4A4A !important;
         color: white !important;
     }
-    
-    /* 2. 드롭다운 팝업 컨테이너 (배경색 강제 지정) */
     div[data-baseweb="popover"], div[data-baseweb="menu"] {
         background-color: #1F242C !important;
         border: 1px solid #444 !important;
     }
-
-    /* 3. 리스트 아이템 (옵션들) 텍스트 색상 및 배경 */
     div[data-baseweb="popover"] li, div[data-baseweb="menu"] li {
-        background-color: #1F242C !important; /* 평상시 배경 */
-        color: white !important;               /* 글자색 흰색 강제 */
-    }
-
-    /* 4. 마우스 호버(Hover) 시 스타일 */
-    div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
-        background-color: #E63946 !important; /* 빨간색 하이라이트 */
+        background-color: #1F242C !important;
         color: white !important;
     }
-
-    /* 5. 선택된 아이템 스타일 */
+    div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
+        background-color: #E63946 !important;
+        color: white !important;
+    }
     div[data-baseweb="popover"] li[aria-selected="true"], div[data-baseweb="menu"] li[aria-selected="true"] {
         background-color: #E63946 !important;
         color: white !important;
         font-weight: bold;
     }
-
-    /* 6. 내부 텍스트 강제 흰색 (중요) */
     div[data-baseweb="select"] span, div[data-baseweb="menu"] span {
         color: white !important;
     }
-    /* 아이콘 색상 */
     div[data-baseweb="select"] svg {
         fill: white !important;
     }
@@ -357,6 +345,8 @@ def main():
             c_info, c_btn = st.columns([8, 2])
             c_info.success(f"{len(st.session_state['selected'])}개 선택됨")
             if c_btn.button("📦 다운로드 (ZIP)", type="primary", use_container_width=True):
+                # 📌 [추가] 다운로드 시작 시 눈내림 효과 실행
+                st.snow()
                 target_objs = [r for r in resources if r['id'] in st.session_state['selected']]
                 with st.spinner("압축 중..."):
                     zip_data = download_zip(target_objs)
@@ -378,7 +368,6 @@ def main():
                             with st.spinner("AI가 파일 내용을 읽고 분석 중입니다..."):
                                 content_summary = ""
                                 for f in files:
-                                    # 텍스트 파일만 읽기
                                     if f.name.endswith(('.py', '.js', '.json', '.txt', '.md', '.html', '.css', '.gs', '.csv')):
                                         try:
                                             file_text = f.getvalue().decode("utf-8")
@@ -393,10 +382,9 @@ def main():
                                 folder_name = "".join(x for x in title if x.isalnum()) + "_" + os.urandom(4).hex()
                                 upload_to_github(folder_name, files, meta)
                             
-                            # 📌 [수정] 풍선 효과를 Spinner 밖에서 실행 + 대기 시간 추가
                             st.balloons()
                             st.success("등록이 완료되었습니다! (2초 후 새로고침)")
-                            time.sleep(2.0) # 풍선 애니메이션 볼 시간 확보
+                            time.sleep(2.0)
                             
                             if 'resources' in st.session_state:
                                 del st.session_state['resources']
