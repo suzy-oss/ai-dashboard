@@ -5,11 +5,11 @@ import io
 import zipfile
 import re
 import time
-from github import Github, UnknownObjectException  # 📌 예외 처리 모듈 추가
+from github import Github, UnknownObjectException, GithubException  # 📌 GithubException 추가
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v11.5 (업로드 오류 완벽 수정: 선 조회 후 처리)"
+CURRENT_VERSION = "🚀 v11.6 (최종 수정: 업로드 강제 처리 및 파일명 정제)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -190,35 +190,42 @@ def load_resources_from_github():
     except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
-# 📌 [핵심 수정] 업로드 로직 안전성 강화
+# 📌 [핵심] 안전한 파일 업로드 헬퍼 함수 (Try-Catch-Retry)
+def safe_create_or_update(repo, file_path, message, content):
+    try:
+        # 1. 먼저 파일 존재 여부 확인 (Get)
+        existing_file = repo.get_contents(file_path)
+        # 2. 존재하면 업데이트
+        repo.update_file(file_path, message, content, existing_file.sha)
+    except UnknownObjectException:
+        # 3. 존재하지 않으면 생성
+        try:
+            repo.create_file(file_path, message, content)
+        except GithubException as e:
+            # 4. 생성 중 에러 발생 (422: 이미 존재함 등) -> 강제 업데이트 재시도
+            if e.status == 422 or e.status == 409:
+                existing_file = repo.get_contents(file_path)
+                repo.update_file(file_path, message, content, existing_file.sha)
+            else:
+                raise e # 다른 에러면 그대로 예외 발생
+
 def upload_to_github(folder_name, files, meta_data):
     repo = get_repo()
     base_path = f"{UPLOAD_DIR}/{folder_name}"
     
     # 1. 개별 파일 업로드
     for file in files:
-        file_path = f"{base_path}/{file.name}"
-        try:
-            # 먼저 파일이 존재하는지 확인 (Get)
-            contents = repo.get_contents(file_path)
-            # 존재하면 Update
-            repo.update_file(file_path, f"Update {file.name}", file.getvalue(), contents.sha)
-        except UnknownObjectException:
-            # 존재하지 않으면 (UnknownObject) Create
-            repo.create_file(file_path, f"Add {file.name}", file.getvalue())
+        # 파일명 정제 (공백, 괄호 등 특수문자를 _로 변환하여 URL 오류 방지)
+        safe_filename = re.sub(r'[\\/:*?"<>| ]', '_', file.name)
+        file_path = f"{base_path}/{safe_filename}"
+        
+        safe_create_or_update(repo, file_path, f"Add {safe_filename}", file.getvalue())
             
     # 2. 메타데이터(info.json) 업로드
     json_path = f"{base_path}/info.json"
     json_content = json.dumps(meta_data, ensure_ascii=False, indent=4)
     
-    try:
-        # 먼저 info.json이 존재하는지 확인
-        contents = repo.get_contents(json_path)
-        # 존재하면 Update
-        repo.update_file(json_path, "Update info", json_content, contents.sha)
-    except UnknownObjectException:
-        # 존재하지 않으면 Create
-        repo.create_file(json_path, "Add info", json_content)
+    safe_create_or_update(repo, json_path, "Add info", json_content)
 
 def delete_from_github(folder_path):
     repo = get_repo()
@@ -366,7 +373,6 @@ def main():
             c_info, c_btn = st.columns([8, 2])
             c_info.success(f"{len(st.session_state['selected'])}개 선택됨")
             if c_btn.button("📦 다운로드 (ZIP)", type="primary", use_container_width=True):
-                # 다운로드 시 눈내림 효과
                 st.snow()
                 target_objs = [r for r in resources if r['id'] in st.session_state['selected']]
                 with st.spinner("압축 중... (폴더별 정리 중)"):
