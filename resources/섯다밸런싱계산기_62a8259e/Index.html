@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --blue: #3b82f6; --red: #ef4444; --green: #22c55e; --bg: #f8fafc; --text: #1e293b; }
+    body { font-family: 'Pretendard', sans-serif; background: var(--bg); color: var(--text); padding: 20px; max-width: 900px; margin: 0 auto; }
+    
+    .header { margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .status-badge { background: #1e293b; color: white; padding: 10px 20px; border-radius: 20px; font-weight: bold; font-size: 0.9em; }
+
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tab { flex: 1; padding: 15px; text-align: center; background: #e2e8f0; border-radius: 10px; cursor: pointer; font-weight: bold; color: #64748b; transition: 0.2s; }
+    .tab.active { background: white; color: var(--blue); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 2px solid var(--blue); }
+    .tab.active.burn { color: var(--red); border-color: var(--red); }
+
+    .card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 15px; }
+    
+    label { display: block; font-size: 0.85em; color: #64748b; margin-bottom: 6px; font-weight: 600; }
+    input, select { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
+    input:read-only { background: #f1f5f9; color: #64748b; cursor: not-allowed; }
+
+    .result-box { background: #eff6ff; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 5px solid var(--blue); }
+    .result-val { font-size: 1.8em; font-weight: 800; color: var(--blue); }
+    .result-sub { font-size: 0.9em; margin-top: 5px; color: #475569; }
+
+    button { width: 100%; padding: 16px; border: none; border-radius: 10px; font-weight: bold; font-size: 1.1rem; cursor: pointer; margin-top: 20px; color: white; transition: 0.2s; }
+    .btn-supply { background: var(--blue); } .btn-supply:hover { background: #2563eb; }
+    .btn-burn { background: var(--red); } .btn-burn:hover { background: #dc2626; }
+
+    /* AI 레포트 스타일 (AI가 생성할 HTML용) */
+    .ai-report { background: #1e293b; color: white; padding: 25px; border-radius: 12px; margin-top: 20px; line-height: 1.6; }
+    .ai-report h3 { border-bottom: 1px solid #475569; padding-bottom: 10px; margin-top: 0; color: #fbbf24; }
+    .ai-bar-bg { background: #334155; height: 10px; border-radius: 5px; margin: 5px 0 15px 0; overflow: hidden; }
+    .ai-bar-fill { height: 100%; border-radius: 5px; }
+    .ai-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
+    .tag-risk { background: #ef4444; color: white; }
+    .tag-safe { background: #22c55e; color: white; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h2>📊 섯다 밸런싱 마스터 (V4)</h2>
+    <div class="status-badge" id="serverInfo">서버 데이터 로딩 중...</div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="setMode('supply')" id="tabS">💰 지급(Supply)</div>
+    <div class="tab" onclick="setMode('burn')" id="tabB">🔥 판수유도(Burn)</div>
+  </div>
+
+  <div id="viewSupply" class="card">
+    <div class="row">
+      <div>
+        <label>타겟 등급 (DB 자동연동)</label>
+        <select id="s_tier" onchange="updateTierInfo('supply')">
+          <option value="whale">VIP/고래 (상위 10%)</option>
+          <option value="normal" selected>일반 유저 (중위 40%)</option>
+          <option value="light">라이트 유저 (하위 50%)</option>
+        </select>
+      </div>
+      <div>
+        <label>대상 인원 (명)</label>
+        <input type="number" id="s_users" readonly>
+      </div>
+    </div>
+    
+    <div class="row">
+      <div>
+        <label>1인당 1일 지급액</label>
+        <input type="text" id="s_amount" value="100,000" oninput="formatNum(this); calcSupply()">
+      </div>
+      <div>
+        <label>이벤트 기간 (일)</label>
+        <input type="number" id="s_days" value="7" oninput="calcSupply()">
+      </div>
+    </div>
+
+    <div class="result-box">
+      <div style="font-size:0.9em; font-weight:bold;">총 풀리는 금액 (Total Impact)</div>
+      <div class="result-val" id="s_total">0</div>
+      <div class="result-sub">
+        인플레이션율: <span id="s_infl" style="font-weight:bold; color:#ef4444;">0.00%</span> 증가
+      </div>
+    </div>
+
+    <button class="btn-supply" onclick="runAI()">🤖 AI 밸런싱 리포트 생성</button>
+  </div>
+
+  <div id="viewBurn" class="card" style="display:none;">
+    <div class="row">
+      <div>
+        <label>타겟 등급</label>
+        <select id="b_tier" onchange="updateTierInfo('burn')">
+          <option value="whale">VIP/고래</option>
+          <option value="normal" selected>일반 유저</option>
+          <option value="light">라이트 유저</option>
+        </select>
+      </div>
+      <div>
+        <label>현재 평균 판수 (일)</label>
+        <input type="number" id="b_avg" readonly style="background:#f1f5f9; color:#64748b;">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>🎯 목표 판수 (미션 조건)</label>
+        <input type="number" id="b_target" value="100" oninput="calcBurn()">
+        <div style="font-size:0.8em; color:#2563eb; margin-top:5px;" id="b_gap_text">
+          +00판 더 치도록 유도
+        </div>
+      </div>
+      <div>
+        <label>보상 지급액 (성공 시)</label>
+        <input type="text" id="b_reward" value="50,000" oninput="formatNum(this); calcBurn()">
+      </div>
+    </div>
+
+    <div class="result-box" style="border-left-color: var(--red); background: #fef2f2;">
+      <div style="font-size:0.9em; font-weight:bold;">순수 증감 (Net Change)</div>
+      <div class="result-val" id="b_net" style="color:var(--red);">0</div>
+      <div class="result-sub">
+        <span id="b_burn_total">총 0 회수</span> (추가유도분: <span id="b_burn_extra" style="font-weight:bold;">0</span>)
+      </div>
+    </div>
+
+    <button class="btn-burn" onclick="runAI()">🤖 AI 미션 난이도 분석</button>
+  </div>
+
+  <div id="aiResult" style="display:none;"></div>
+
+  <script>
+    let db = {};
+    let mode = 'supply';
+
+    window.onload = function() {
+      google.script.run.withSuccessHandler(init).getV4Stats();
+    };
+
+    function init(data) {
+      if(data.error) return alert("Error: " + data.error);
+      db = data;
+      
+      document.getElementById('serverInfo').innerText = 
+        `서버 총 통화량: ${format(db.serverMoney)} | 전체 유저: ${format(db.dau)}명`;
+      
+      updateTierInfo('supply');
+    }
+
+    function setMode(m) {
+      mode = m;
+      document.getElementById('viewSupply').style.display = (m==='supply')?'block':'none';
+      document.getElementById('viewBurn').style.display = (m==='burn')?'block':'none';
+      document.getElementById('tabS').className = (m==='supply')?'tab active':'tab';
+      document.getElementById('tabB').className = (m==='burn')?'tab active burn':'tab';
+      document.getElementById('aiResult').style.display = 'none';
+      
+      if(m === 'burn') updateTierInfo('burn');
+    }
+
+    // 등급 선택 시 DB값 자동 매핑 (핵심 기능!)
+    function updateTierInfo(m) {
+      const tierKey = document.getElementById(m === 'supply' ? 's_tier' : 'b_tier').value;
+      const tierData = db.tiers[tierKey];
+
+      if(m === 'supply') {
+        // 인원 수 자동 입력
+        document.getElementById('s_users').value = tierData.count;
+        calcSupply();
+      } else {
+        // 평균 판수 자동 입력
+        document.getElementById('b_avg').value = Math.round(tierData.avgPlay);
+        // 목표 판수 기본값: 평균 + 20%
+        document.getElementById('b_target').value = Math.round(tierData.avgPlay * 1.2);
+        calcBurn();
+      }
+    }
+
+    function calcSupply() {
+      const users = parse('s_users');
+      const amount = parse('s_amount');
+      const days = parse('s_days');
+      
+      const total = users * amount * days;
+      const infl = (total / db.serverMoney) * 100;
+
+      document.getElementById('s_total').innerText = "+" + format(total);
+      document.getElementById('s_infl').innerText = infl.toFixed(5) + "%";
+    }
+
+    function calcBurn() {
+      const tierKey = document.getElementById('b_tier').value;
+      const tierData = db.tiers[tierKey];
+      
+      const currentAvg = parseFloat(document.getElementById('b_avg').value);
+      const target = parseFloat(document.getElementById('b_target').value);
+      const reward = parse('b_reward');
+      const users = tierData.count; // 해당 등급 전체 대상 가정 (혹은 입력값으로 변경 가능)
+
+      // 유도 판수 (Gap)
+      const gap = target - currentAvg;
+      document.getElementById('b_gap_text').innerText = 
+        gap > 0 ? `🔥 +${gap}판 더 치도록 유도 (난이도 증가)` : `⚠️ 평균보다 낮음 (변별력 없음)`;
+
+      // 회수 계산
+      // 1. 총 회수 = (타겟판수 * 판당회수금 * 인원)
+      // 2. 추가 회수 = (Gap * 판당회수금 * 인원)
+      const burnRate = tierData.burn;
+      const totalBurn = target * burnRate * users;
+      const extraBurn = gap * burnRate * users;
+      const totalReward = reward * users;
+
+      // 순수 증감 = 보상지급 - 총회수 (회수가 더 많으면 마이너스)
+      const net = totalReward - totalBurn; 
+
+      document.getElementById('b_net').innerText = (net > 0 ? "+" : "") + format(net);
+      document.getElementById('b_net').style.color = (net > 0) ? "var(--blue)" : "var(--red)";
+      
+      document.getElementById('b_burn_total').innerText = "총 " + format(totalBurn) + " 회수";
+      document.getElementById('b_burn_extra').innerText = format(extraBurn) + " (추가효과)";
+    }
+
+    function runAI() {
+      const resBox = document.getElementById('aiResult');
+      resBox.style.display = 'block';
+      resBox.innerHTML = '<div style="text-align:center; color:white;">📊 AI가 데이터를 분석하고 차트를 그리는 중입니다...</div>';
+
+      const tierKey = document.getElementById(mode === 'supply' ? 's_tier' : 'b_tier').value;
+      
+      let payload = {
+        mode: mode,
+        targetTier: tierKey,
+        users: db.tiers[tierKey].count
+      };
+
+      if(mode === 'supply') {
+        payload.impactLabel = "총 지급액(Supply)";
+        payload.totalImpact = document.getElementById('s_total').innerText;
+        payload.percent = document.getElementById('s_infl').innerText.replace("%","");
+        payload.detail1 = `1인당 ${document.getElementById('s_amount').value} 머니 지급`;
+        payload.detail2 = `기간: ${document.getElementById('s_days').value}일간`;
+      } else {
+        payload.impactLabel = "순수 회수액(Net Burn)";
+        payload.totalImpact = document.getElementById('b_net').innerText;
+        payload.percent = "해당없음"; // 회수율 계산 복잡하니 생략
+        payload.detail1 = `목표: ${document.getElementById('b_target').value}판 (평균 대비 +${parseInt(document.getElementById('b_target').value) - parseInt(document.getElementById('b_avg').value)})`;
+        payload.detail2 = `성공보상: ${document.getElementById('b_reward').value} 머니`;
+      }
+
+      google.script.run.withSuccessHandler(function(html) {
+        resBox.innerHTML = html; // AI가 준 HTML 렌더링
+      }).askAI_Visual(payload);
+    }
+
+    function formatNum(el) { el.value = Number(el.value.replace(/,/g,'')).toLocaleString(); }
+    function parse(id) { return parseFloat(document.getElementById(id).value.replace(/,/g,'')) || 0; }
+    function format(n) { return Math.round(n).toLocaleString(); }
+  </script>
+</body>
+</html>
