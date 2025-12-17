@@ -10,7 +10,7 @@ from github import Github, GithubException, UnknownObjectException
 from openai import OpenAI
 
 # --- 버전 정보 ---
-CURRENT_VERSION = "🚀 v12.0 (디버깅 모드: 오류 원인 출력 기능 추가)"
+CURRENT_VERSION = "🚀 v14.0 (Final Fix: 프롬프트 복구 & 특수효과 적용)"
 
 # --- 1. 시크릿 로드 ---
 try:
@@ -90,26 +90,18 @@ def load_resources_from_github():
     except: return []
     return sorted(resources, key=lambda x: x.get('title', ''), reverse=True)
 
-# 📌 [핵심 수정] 오류가 나면 '왜' 났는지 알려주는 함수
 def safe_create_or_update(repo, file_path, message, content):
     try:
-        # 1. 파일 확인
         existing_file = repo.get_contents(file_path)
-        # 2. 있으면 업데이트
         repo.update_file(file_path, message, content, existing_file.sha)
     except UnknownObjectException:
-        # 3. 없으면 생성 (여기서 오류가 많이 남)
         try:
             repo.create_file(file_path, message, content)
         except GithubException as e:
-            # 🚨 생성 실패 시 상세 원인 분석
-            if e.status == 403:
-                st.error(f"❌ 권한 오류 (403): 토큰에 'repo' 권한이 없습니다. GitHub 설정에서 체크해주세요.")
-            elif e.status == 404:
-                st.error(f"❌ 경로 오류 (404): 저장소 이름을 찾을 수 없거나 권한이 없습니다.")
+            if e.status == 409:
+                st.error("🚨 보안 경고: 파일 안에 OpenAI Key 같은 비밀 정보가 포함되어 있어 GitHub가 업로드를 차단했습니다. 키를 지우고 다시 시도하세요.")
             else:
                 st.error(f"❌ GitHub 오류 ({e.status}): {e.data}")
-            # 실행 중단 (더 이상 진행하지 않음)
             st.stop()
     except GithubException as e:
         st.error(f"❌ 알 수 없는 GitHub 오류: {str(e)}")
@@ -119,32 +111,27 @@ def upload_to_github(folder_name, files, meta_data):
     repo = get_repo()
     base_path = f"{UPLOAD_DIR}/{folder_name}"
     
-    # 진행 상황바
     progress_text = "파일 업로드 시작..."
     my_bar = st.progress(0, text=progress_text)
     
     total_steps = len(files) + 1
     
-    # 1. 개별 파일 업로드
     for idx, file in enumerate(files):
         safe_filename = file.name 
         file_path = f"{base_path}/{safe_filename}"
         content_bytes = file.getvalue()
         
-        # 업로드 수행
         safe_create_or_update(repo, file_path, f"Add {safe_filename}", content_bytes)
         
-        # 진행률 업데이트
         percent = int(((idx + 1) / total_steps) * 100)
         my_bar.progress(percent, text=f"Uploading: {safe_filename}")
             
-    # 2. 메타데이터 업로드
     json_path = f"{base_path}/info.json"
     json_content = json.dumps(meta_data, ensure_ascii=False, indent=4)
     safe_create_or_update(repo, json_path, "Add info", json_content)
     
     my_bar.progress(100, text="업로드 완료!")
-    time.sleep(1)
+    time.sleep(0.5)
     my_bar.empty()
 
 def delete_from_github(folder_path):
@@ -165,15 +152,43 @@ def download_zip(selected_objs):
                     zf.writestr(zip_path, c.decoded_content)
     return zip_buffer.getvalue()
 
+# 📌 [복구 완료] 선생님이 주신 완벽한 프롬프트 적용
 def generate_desc(file_contents_str, hint):
     if not OPENAI_API_KEY: return "API 키가 설정되지 않았습니다."
     client = OpenAI(api_key=OPENAI_API_KEY)
     
     prompt = f"""
-    당신은 IT 컨설턴트입니다. 파일 내용과 힌트를 바탕으로 보고서를 작성하세요.
-    [파일 내용]: {file_contents_str}
-    [힌트]: {hint}
-    작성 언어: 한국어. 전문 용어 사용. 마크다운 형식.
+    당신은 기업의 수석 IT 컨설턴트입니다. 
+    사용자가 업로드한 '파일의 실제 내용'을 분석하여 임원 및 실무자 보고용 문서를 작성하세요.
+    
+    [분석할 파일 내용]:
+    {file_contents_str}
+    
+    [작성자 힌트]: 
+    {hint}
+    
+    **작성 가이드:**
+    1. 서론(안녕하세요 등) 절대 금지. 바로 본론 진입.
+    2. 전문적인 비즈니스 용어 사용.
+    3. 화살표(->)를 사용하여 데이터 흐름을 명확히 표현.
+    4. 언어: 한국어 (Korean)
+    
+    **출력 포맷 (Markdown):**
+    
+    ### 📋 시스템 요약 (Executive Summary)
+    (이 도구가 무엇인지, 어떤 비즈니스 가치를 주는지 2줄 요약)
+
+    ### ⚙️ 아키텍처 및 데이터 흐름
+    * **Flow**: `[입력] -> [처리] -> [출력]` (실제 로직 반영)
+    * **핵심 구성 요소**:
+        * **파일명**: (해당 파일의 구체적 역할과 로직 설명)
+
+    ### 🛠️ 기술적 메커니즘 (Deep Dive)
+    * **트리거**: (언제 실행되는지)
+    * **로직**: (데이터가 어떻게 가공되는지 코드 레벨 분석)
+
+    ### ✨ 비즈니스 임팩트
+    (도입 시 정량적/정성적 기대 효과)
     """
     try:
         res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user","content":prompt}])
@@ -234,10 +249,15 @@ def main():
 
         if st.session_state['selected']:
             st.markdown("---")
+            # 📌 다운로드 버튼 클릭 시 눈송이 효과
             if st.button("📦 다운로드 (ZIP)", type="primary", use_container_width=True):
+                st.snow()  # ❄️ 눈송이 효과
+                
                 target = [r for r in resources if r['id'] in st.session_state['selected']]
-                with st.spinner("압축 중..."):
-                    st.download_button("파일 저장", download_zip(target), "RedDrive.zip", "application/zip")
+                with st.spinner("압축 중... 잠시만 기다려주세요 ❄️"):
+                    zip_data = download_zip(target)
+                    time.sleep(1) 
+                    st.download_button("💾 파일 저장하기 (Click)", zip_data, "RedDrive.zip", "application/zip", use_container_width=True)
 
     elif "관리자" in menu:
         st.title("⚙️ 관리자 모드")
@@ -250,6 +270,7 @@ def main():
                     cat = st.selectbox("카테고리", ["Workflow", "Prompt", "Data", "Tool"])
                     files = st.file_uploader("파일 업로드", accept_multiple_files=True)
                     hint = st.text_area("AI 힌트")
+                    
                     if st.form_submit_button("등록"):
                         if title and files:
                             with st.spinner("AI 분석 및 업로드 중..."):
@@ -265,9 +286,11 @@ def main():
                                 
                                 upload_to_github(folder_name, files, meta)
                             
-                            st.balloons()
-                            st.success("등록 완료! (새로고침 됩니다)")
-                            time.sleep(2)
+                            # 📌 업로드 성공 시 풍선 효과
+                            st.balloons() 
+                            st.success("등록이 완료되었습니다! 잠시 후 목록이 갱신됩니다.")
+                            time.sleep(3) 
+                            
                             del st.session_state['resources']
                             st.rerun()
 
